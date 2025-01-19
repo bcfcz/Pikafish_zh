@@ -483,6 +483,7 @@ void Search::Worker::clear() {
 
 
 // Main search function for both PV and non-PV nodes
+// PV和非PV节点的主搜索函数
 template<NodeType nodeType>
 Value Search::Worker::search(
   Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode) {
@@ -492,6 +493,7 @@ Value Search::Worker::search(
     const bool     allNode  = !(PvNode || cutNode);
 
     // Dive into quiescence search when the depth reaches zero
+    //当深度达到零时，开始静止搜索
     if (depth <= 0)
     {
         constexpr auto nt = PvNode ? PV : NonPV;
@@ -499,6 +501,7 @@ Value Search::Worker::search(
     }
 
     // Limit the depth if extensions made it too large
+    //如果延伸太大，请限制深度
     depth = std::min(depth, MAX_PLY - 1);
 
     assert(-VALUE_INFINITE <= alpha && alpha < beta && beta <= VALUE_INFINITE);
@@ -522,6 +525,7 @@ Value Search::Worker::search(
     ValueList<Move, 32> quietsSearched;
 
     // Step 1. Initialize node
+    //步骤1。初始化节点
     Worker* thisThread = this;
     ss->inCheck        = bool(pos.checkers());
     priorCapture       = pos.captured_piece();
@@ -531,16 +535,19 @@ Value Search::Worker::search(
     maxValue           = VALUE_INFINITE;
 
     // Check for the available remaining time
+    //检查剩余可用时间
     if (is_mainthread())
         main_manager()->check_time(*thisThread);
 
     // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
+    //用于将selDepth信息发送到GUI（selDepth计数从1开始，层数从0开始）
     if (PvNode && thisThread->selDepth < ss->ply + 1)
         thisThread->selDepth = ss->ply + 1;
 
     if (!rootNode)
     {
         // Step 2. Check for aborted search and repetition
+        //步骤2。检查是否中止搜索和重复
         Value result = VALUE_NONE;
         if (pos.rule_judge(result, ss->ply))
             return result == VALUE_DRAW ? value_draw(thisThread->nodes) : result;
@@ -550,10 +557,14 @@ Value Search::Worker::search(
 
             // 2 fold result is mate for us, the only chance for the opponent is to get a draw
             // We can guarantee to get at least a draw score during searching for that line
+            // 2折（步或变着）的结果是我们可以将死对方，对手唯一的机会是和棋
+            // 在寻找这一线路的过程中，我们可以保证至少获得一个和棋的结果
             if (result > VALUE_DRAW)
                 alpha = std::max(alpha, VALUE_DRAW - 1);
             // 2 fold result is mated for us, the only chance for us is to get a draw
             // We can guarantee to get no more than a draw score during searching for that line
+            // 两倍的结果对我们来说是必输的，我们唯一的希望就是争取平局
+            // 在寻找那条路线的过程中，我们能保证得到的最好结果就是平局
             else
                 beta = std::min(beta, VALUE_DRAW + 1);
         }
@@ -568,6 +579,7 @@ Value Search::Worker::search(
         // because we will never beat the current alpha. Same logic but with reversed
         // signs apply also in the opposite condition of being mated instead of giving
         // mate. In this case, return a fail-high score.
+        // 第 3 步：将杀距离剪枝。即使我们在下一步走棋就能将杀，我们的得分最多也只是 mate_in(ss->ply + 1)，但如果 alpha 值已经更大，因为向上在树中找到了更短的将杀，那么就没有必要继续搜索，因为我们永远无法超越当前的 alpha 值。同样的逻辑，但符号相反，也适用于相反的情况，即被将杀而不是给予将杀。在这种情况下，返回一个高失败得分。
         alpha = std::max(mated_in(ss->ply), alpha);
         beta  = std::min(mate_in(ss->ply + 1), beta);
         if (alpha >= beta)
@@ -582,10 +594,12 @@ Value Search::Worker::search(
     ss->statScore = 0;
 
     // Step 4. Transposition table lookup
+    // 第 4 步. 转置表查找
     excludedMove                   = ss->excludedMove;
     posKey                         = pos.key();
     auto [ttHit, ttData, ttWriter] = tt.probe(posKey);
     // Need further processing of the saved data
+    //需要对保存的数据进行进一步处理
     ss->ttHit    = ttHit;
     ttData.move  = rootNode ? thisThread->rootMoves[thisThread->pvIdx].pv[0]
                  : ttHit    ? ttData.move
@@ -596,8 +610,10 @@ Value Search::Worker::search(
 
     // At this point, if excluded, skip straight to step 5, static eval. However,
     // to save indentation, we list the condition in all code between here and there.
+    //此时，如果被排除，则直接跳到第5步，静态评估。但是，为了节省缩进空间，我们将在此处到那里的所有代码中列出该条件。
 
     // At non-PV nodes we check for an early TT cutoff
+    //在非PV节点，我们检查是否可以提前进行转置表截断。
     if (!PvNode && !excludedMove && ttData.depth > depth - (ttData.value <= beta)
         && is_valid(ttData.value)  // Can happen when !ttHit or when access race in probe()
         && (ttData.bound & (ttData.value >= beta ? BOUND_LOWER : BOUND_UPPER))
