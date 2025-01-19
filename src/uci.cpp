@@ -131,7 +131,7 @@ void UCIEngine::loop() {
             position(is);
         else if (token == "fen" || token == "startpos")
             is.seekg(0), position(is);
-        else if (token == "ucinewgame")
+        else if (token == "ucinewgame") // 新局，可清除置换表等
             engine.search_clear();
         else if (token == "isready")
             sync_cout << "readyok" << sync_endl;

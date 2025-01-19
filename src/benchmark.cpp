@@ -27,13 +27,16 @@
 namespace {
 
 // clang-format off
-// Positions from https://www.chessprogramming.org/Chinese_Chess_Perft_Results
+// 下面的局面摘自https://www.chessprogramming.org/Chinese_Chess_Perft_Results
+// 用于引擎bench
+// bench的全称是benchmark，即基准测试
+// 皮卡鱼有两个基准测试指令，一个是bench，另一个是speedtest（名字由“BenchmarkCommand”常量规定）
 const std::vector<std::string> Defaults = {
 
-    // Initial Position
+    // 开局
     "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w",
 
-    // Middle game
+    // 中局
     "r1ba1a3/4kn3/2n1b4/pNp1p1p1p/4c4/6P2/P1P2R2P/1CcC5/9/2BAKAB2 w",
     "1cbak4/9/n2a5/2p1p3p/5cp2/2n2N3/6PCP/3AB4/2C6/3A1K1N1 w",
     "5a3/3k5/3aR4/9/5r3/5n3/9/3A1A3/5K3/2BC2B2 w",
@@ -76,7 +79,7 @@ const std::vector<std::string> Defaults = {
     "3ak4/3Pa4/4b3b/5r3/1R3N3/9/9/B8/2p1A4/2B1KA3 w",
     "4k1b2/4a4/5a3/6P1C/9/p4Nn2/2n6/9/4K4/5AB2 b"
 
-    // Positions with complicated checks and evasions
+    // 一些有复杂将军和应将的局面
     "CRN1k1b2/3ca4/4ba3/9/2nr5/9/9/4B4/4A4/4KA3 w",
     "R1N1k1b2/9/3aba3/9/2nr5/2B6/9/4B4/4A4/4KA3 w",
     "C1nNk4/9/9/9/9/9/n1pp5/B3C4/9/3A1K3 w",
@@ -88,8 +91,8 @@ const std::vector<std::string> Defaults = {
 // clang-format on
 
 // clang-format off
-// Human-randomly picked 5 games with <60 moves from kaka's selfplay games
-// only moves for one side
+// 人为随机挑选了5局来自卡卡自对弈的少于60回合的局面
+// 仅记录了一方的走棋步骤
 const std::vector<std::vector<std::string>> BenchmarkPositions = {
     {
         "2bakab2/9/c3c1n2/p3p1p1p/1npr5/2P2NP2/P3P3P/2CCB4/4A4/1NBAKR3 b - - 1 1",
@@ -377,12 +380,25 @@ namespace Stockfish::Benchmark {
 // bench 64 1 100000 default nodes  : search default positions for 100K nodes each
 // bench 64 4 5000 current movetime : search current position with 4 threads for 5 sec
 // bench 16 1 5 blah perft          : run a perft 5 on positions in file "blah"
+
+// 构建一组由 bench 运行的 UCI 指令列表。
+// 有五个参数：TT（置换表）大小（单位为 MB）、使用的搜索线程数量、
+// 每个棋局花费的限制值、包含 FEN 格式棋局的文件名，以及限制类型：
+// 深度（depth）、节点遍历（perft）、节点数（nodes）或搜索时间（movetime，单位为毫秒）。
+// 命令示例：
+//
+// bench : 搜索默认棋局直到深度 13
+// bench 64 1 15 : 搜索默认棋局直到深度 15（TT = 64MB）
+// bench 64 1 100000 default nodes : 对默认棋局每局搜索 100K 个节点
+// bench 64 4 5000 current movetime : 使用 4 个线程搜索当前棋局 5 秒
+// bench 16 1 5 blah perft : 对文件 "blah" 中的棋局运行 perft 5
 std::vector<std::string> setup_bench(const std::string& currentFen, std::istream& is) {
 
     std::vector<std::string> fens, list;
     std::string              go, token;
 
     // Assign default values to missing arguments
+    // 为缺失的值分配默认值
     std::string ttSize    = (is >> token) ? token : "16";
     std::string threads   = (is >> token) ? token : "1";
     std::string limit     = (is >> token) ? token : "13";
@@ -434,6 +450,9 @@ std::vector<std::string> setup_bench(const std::string& currentFen, std::istream
 BenchmarkSetup setup_benchmark(std::istream& is) {
     // TT_SIZE_PER_THREAD is chosen such that roughly half of the hash is used all positions
     // for the current sequence have been searched.
+    // TT_SIZE_PER_THREAD指的是对每个线程分配的置换表大小
+    // 最终分配的置换表大小会是线程数 * TT_SIZE_PER_THREAD
+    // 给每个线程分配128MB可以确保当前序列中所有位置被搜索后，大约使用一半的置换表空间。
     static constexpr int TT_SIZE_PER_THREAD = 128;
 
     static constexpr int DEFAULT_DURATION_S = 150;
@@ -441,15 +460,17 @@ BenchmarkSetup setup_benchmark(std::istream& is) {
     BenchmarkSetup setup{};
 
     // Assign default values to missing arguments
+    // 为缺失的值分配默认值
     int desiredTimeS;
 
+    // 如果未输入线程数，则使用硬件支持的最大线程数
     if (!(is >> setup.threads))
-        setup.threads = get_hardware_concurrency();
+        setup.threads = get_hardware_concurrency(); // 获取电脑线程数
     else
         setup.originalInvocation += std::to_string(setup.threads);
 
     if (!(is >> setup.ttSize))
-        setup.ttSize = TT_SIZE_PER_THREAD * setup.threads;
+        setup.ttSize = TT_SIZE_PER_THREAD * setup.threads; // 分配置换表大小，值为线程数 * TT_SIZE_PER_THREAD
     else
         setup.originalInvocation += " " + std::to_string(setup.ttSize);
 
@@ -467,6 +488,12 @@ BenchmarkSetup setup_benchmark(std::istream& is) {
         // ms = 50000/{ply+15}
         // with this fit 10th move gets 2000ms
         // adjust for desired 10th move time
+
+        // 定义一个 lambda 函数，根据累计步数（即ply）计算修正的每步时间。
+        // 时间公式基于 LTC（Long Time Control，可翻译为慢棋？）游戏调整：
+        // 时间（秒） = 50 / {ply + 15}
+        // 时间（毫秒）= 50000 / {ply + 15}
+        // 使用此公式，预计第10回合的时间为2000毫秒。
         return 50000.0 / (static_cast<double>(ply) + 15.0);
     };
 

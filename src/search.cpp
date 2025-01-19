@@ -52,6 +52,7 @@ using namespace Search;
 namespace {
 
 // Futility margin
+// 无用剪枝
 Value futility_margin(Depth d, bool noTtCutNode, bool improving, bool oppWorsening) {
     Value futilityMult       = 140 - 33 * noTtCutNode;
     Value improvingDeduction = improving * futilityMult * 2;

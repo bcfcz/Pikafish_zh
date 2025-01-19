@@ -28,7 +28,7 @@
 using namespace Stockfish;
 
 int main(int argc, char* argv[]) {
-
+    // 输出引擎名、作者等引擎信息
     std::cout << engine_info() << std::endl;
 
     Bitboards::init();
