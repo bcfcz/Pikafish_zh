@@ -49,7 +49,7 @@ struct TTData {
     Move  move;
     Value value, eval;
     Depth depth;
-    Bound bound;
+    Bound bound; // 用于表示某个评估值是通过何种搜索得出的
     bool  is_pv;
 };
 
