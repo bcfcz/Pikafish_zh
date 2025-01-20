@@ -237,10 +237,10 @@ void Position::set_state() const {
 
             if (pt != KING)
             {
-                if (pt & 1)
+                if (pt & 1) // 如果是大子
                 {
-                    st->majorMaterial[color_of(pc)] += PieceValue[pc];
-                    st->majorPieceKey ^= Zobrist::psq[pc][s];
+                    st->majorMaterial[color_of(pc)] += PieceValue[pc]; // 增加大子的子力价值总和
+                    st->majorPieceKey ^= Zobrist::psq[pc][s]; // 从key中增加
                 }
 
                 else
@@ -520,17 +520,17 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
         {
             st->nonPawnKey[them] ^= Zobrist::psq[captured][capsq];
 
-            if (type_of(captured) & 1)
+            if (type_of(captured) & 1) // 如果大子被吃
             {
-                st->majorMaterial[them] -= PieceValue[captured];
-                st->majorPieceKey ^= Zobrist::psq[captured][capsq];
+                st->majorMaterial[them] -= PieceValue[captured]; // 减少大子的子力价值总和
+                st->majorPieceKey ^= Zobrist::psq[captured][capsq]; // 从key中移除
             }
 
             else
                 st->minorPieceKey ^= Zobrist::psq[captured][capsq];
         }
 
-        dp.dirty_num = 2;  // 1 piece moved, 1 piece captured
+        dp.dirty_num = 2;  // 一个棋子被移动，一个棋子被吃
         dp.piece[1]  = captured;
         dp.from[1]   = capsq;
         dp.to[1]     = SQ_NONE;
@@ -548,7 +548,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
         // Update hash key
         k ^= Zobrist::psq[captured][capsq];
 
-        // Reset rule 60 counter
+        // 重置60回合规则计数
         st->check10[WHITE] = st->check10[BLACK] = st->rule60 = 0;
     }
 
@@ -574,7 +574,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
             st->minorPieceKey ^= Zobrist::psq[pc][from] ^ Zobrist::psq[pc][to];
     }
 
-    // Move the piece.
+    // 移动棋子
     dp.piece[0] = pc;
     dp.from[0]  = from;
     dp.to[0]    = to;
@@ -591,6 +591,7 @@ void Position::do_move(Move m, StateInfo& newSt, bool givesCheck) {
     st->checkersBB = givesCheck ? checkers_to(us, king_square(them)) : Bitboard(0);
     assert(givesCheck == bool(st->checkersBB));
 
+    // 翻转走子方
     sideToMove = ~sideToMove;
 
     // Update king attacks used for fast check detection
@@ -1040,11 +1041,11 @@ bool Position::rule_judge(Value& result, int ply) {
                     Position rollback;
                     memcpy((void*) &rollback, (const void*) this, offsetof(Position, filter));
 
-                    // Chasing detection
+                    // 检测“捉”
                     result = rollback.detect_chases(i, ply);
                 }
                 else
-                    // Checking detection
+                    // 检测“将”
                     result = !checkUs ? mate_in(ply) : !checkThem ? mated_in(ply) : VALUE_DRAW;
 
                 // 3 folds and 2 fold draws can be judged immediately
@@ -1075,7 +1076,7 @@ bool Position::rule_judge(Value& result, int ply) {
         }
     }
 
-    // 60 move rule
+    // 60回合判和规则
     if (st->rule60 >= 120)
     {
         result = MoveList<LEGAL>(*this).size() ? VALUE_DRAW : mated_in(ply);
@@ -1083,16 +1084,18 @@ bool Position::rule_judge(Value& result, int ply) {
     }
 
     // Draw by insufficient material
+    // 子力过少判和
+    // 双方兵的数量必须为0
     if (count<PAWN>() == 0)
     {
         enum DrawLevel : int {
-            NO_DRAW,      // There is no drawing situation exists
+            NO_DRAW,      // 不可能存在和棋的情况
             DIRECT_DRAW,  // A draw can be directly yielded without any checks
             MATE_DRAW     // We need to check for mate before yielding a draw
         };
 
         int level = [&]() {
-            // No cannons left on the board
+            // 棋盘上没有炮
             if (!major_material())
                 return DIRECT_DRAW;
 

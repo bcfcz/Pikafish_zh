@@ -159,20 +159,26 @@ constexpr bool is_loss(Value value) {
 
 constexpr bool is_decisive(Value value) { return is_win(value) || is_loss(value); }
 
-constexpr Value RookValue    = 1305;
-constexpr Value AdvisorValue = 219;
-constexpr Value CannonValue  = 773;
-constexpr Value PawnValue    = 144;
-constexpr Value KnightValue  = 720;
-constexpr Value BishopValue  = 187;
+// 子力价值
+constexpr Value RookValue    = 1305; // 车的价值
+constexpr Value AdvisorValue = 219;  // 士的价值
+constexpr Value CannonValue  = 773;  // 炮的价值
+constexpr Value PawnValue    = 144;  // 兵卒的价值
+constexpr Value KnightValue  = 720;  // 马的价值
+constexpr Value BishopValue  = 187;  // 相象的价值
 
 // clang-format off
+// 棋子类型
+// 经过设计，奇数均为大子，便于判断
+// 例：ROOK(1), CANNON(3), KNIGHT(5), KING(7)
+// 使用pt & 1可判断是否为大子
 enum PieceType {
     NO_PIECE_TYPE, ROOK, ADVISOR, CANNON, PAWN, KNIGHT, BISHOP, KING, KNIGHT_TO,
     ALL_PIECES = 0,
     PIECE_TYPE_NB = 8
 };
 
+// 棋子
 enum Piece {
     NO_PIECE,
     W_ROOK           , W_ADVISOR, W_CANNON, W_PAWN, W_KNIGHT, W_BISHOP, W_KING,

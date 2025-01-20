@@ -285,9 +285,9 @@ inline Key Position::minor_piece_key() const { return st->minorPieceKey; }
 
 inline Key Position::non_pawn_key(Color c) const { return st->nonPawnKey[c]; }
 
-inline Value Position::major_material(Color c) const { return st->majorMaterial[c]; }
+inline Value Position::major_material(Color c) const { return st->majorMaterial[c]; } // 大子的子力价值总和（某一方）
 
-inline Value Position::major_material() const {
+inline Value Position::major_material() const { // 大子的子力价值总和（双方）
     return major_material(WHITE) + major_material(BLACK);
 }
 
