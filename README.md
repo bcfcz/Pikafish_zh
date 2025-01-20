@@ -1,6 +1,6 @@
 # Pikafish完全解析
 ## 什么是Pikafish？
-Pikafish是一个开源的象棋引擎，能够对棋局进行深入计算和分析。
+Pikafish（皮卡鱼）是一个开源的象棋引擎，能够对棋局进行深入计算和分析。
 
 [点击进入皮卡鱼官网](https://www.pikafish.com/)
 
@@ -11,3 +11,6 @@ Pikafish是一个开源的象棋引擎，能够对棋局进行深入计算和分
 
 ## 相关项目
 [Stockfish完全解析（日）](https://yaneuraou.yaneu.com/stockfish%e5%ae%8c%e5%85%a8%e8%a7%a3%e6%9e%90/)
+
+## Star!
+如果你支持我们的工作，就给个Star吧~！

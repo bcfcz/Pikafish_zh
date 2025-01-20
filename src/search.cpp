@@ -531,7 +531,7 @@ Value Search::Worker::search(
     priorCapture       = pos.captured_piece(); // 之前吃的棋子
     Color us           = pos.side_to_move(); // 我方的颜色
     ss->moveCount      = 0; // 重置当前局面中合法着法的数量
-    bestValue          = -VALUE_INFINITE; // 将bestValue初始化为负无穷。只要存在一个有效的着法，bestValue的值就会比初始值大。
+    bestValue          = -VALUE_INFINITE; // 将bestValue初始化为负无穷。只要存在一个有效的着法，bestValue的值就会比初始值大
     maxValue           = VALUE_INFINITE;
 
     // Check for the available remaining time
@@ -548,7 +548,7 @@ Value Search::Worker::search(
     if (!rootNode)
     {
         // Step 2. Check for aborted search and repetition
-        // 步骤2. 检查是否中止搜索和重复
+        // 步骤2. 检查是否中止搜索和循环
         Value result = VALUE_NONE;
         if (pos.rule_judge(result, ss->ply)) // 棋规裁决
             return result == VALUE_DRAW ? value_draw(thisThread->nodes) : result;
@@ -558,14 +558,14 @@ Value Search::Worker::search(
 
             // 2 fold result is mate for us, the only chance for the opponent is to get a draw
             // We can guarantee to get at least a draw score during searching for that line
-            // 2次重复的裁决结果是我们可以将死对方（MATE），对手唯一的机会是和棋
+            // 2次循环的裁决结果是我们可以将死对方（MATE），对手唯一的机会是和棋
             // 在寻找这一线路的过程中，我们可以保证至少获得一个和棋的结果
             // 因此分数下界为和棋
             if (result > VALUE_DRAW)
                 alpha = std::max(alpha, VALUE_DRAW - 1);
             // 2 fold result is mated for us, the only chance for us is to get a draw
             // We can guarantee to get no more than a draw score during searching for that line
-            // 2次重复的裁决结果对我们来说是必输的（MATED），我们唯一的希望就是争取和棋
+            // 2次循环的裁决结果对我们来说是必输的（MATED），我们唯一的希望就是争取和棋
             // 在寻找那条路线的过程中，我们能保证得到的最好结果就是和棋
             // 因此分数上界为和棋
             else
@@ -657,7 +657,7 @@ Value Search::Worker::search(
     const auto correctionValue      = correction_value(*thisThread, pos, ss);
     if (ss->inCheck)
     {
-        // Skip early pruning when in check
+        // 将军时跳过早期的剪枝
         ss->staticEval = eval = (ss - 2)->staticEval;
         improving             = false;
         goto moves_loop;
@@ -725,6 +725,8 @@ Value Search::Worker::search(
 
     // Step 7. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
+    // 第7步. 无用裁剪：子节点（~40 Elo）
+    // 深度条件对于寻找绝杀很重要
     if (!ss->ttPv && depth < 16
         && eval - futility_margin(depth, cutNode && !ss->ttHit, improving, opponentWorsening)
                - (ss - 1)->statScore / 159
@@ -736,6 +738,7 @@ Value Search::Worker::search(
     improving |= ss->staticEval >= beta + 113;
 
     // Step 8. Null move search with verification search (~35 Elo)
+    // 第8步. 带验证的空着裁剪
     if (cutNode && (ss - 1)->currentMove != Move::null() && eval >= beta
         && ss->staticEval >= beta - 8 * depth + 189 && !excludedMove && pos.major_material(us)
         && ss->ply >= thisThread->nmpMinPly && !is_loss(beta))
@@ -1454,6 +1457,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
 
         // 2 fold result is mate for us, the only chance for the opponent is to get a draw
         // We can guarantee to get at least a draw score during searching for that line
+        // TODO: 为什么删去了+1和-1？https://github.com/official-pikafish/Pikafish/commit/ef66bda24235bb27c76c0d0de28d7f010e89c267
         if (result > VALUE_DRAW)
             alpha = std::max(alpha, VALUE_DRAW);
         // 2 fold result is mated for us, the only chance for us is to get a draw
