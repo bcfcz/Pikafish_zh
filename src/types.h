@@ -406,10 +406,10 @@ class Move { // 存储着法的类
 
     constexpr int from_to() const { return data & 0x3FFF; } // 将高2位设置为0，因为高2位未被使用
 
-    constexpr bool is_ok() const { return none().data != data && null().data != data; }
+    constexpr bool is_ok() const { return none().data != data && null().data != data; } // 判断是否为正常着法，排除null和none着法
 
     static constexpr Move null() { return Move(129); } // 用于空着裁剪（Null Move Pruning）的特殊移动值。起始位置=1，目标位置=1 (1*128 + 1 == 129)，使用UCI表示法表示为“0000”
-    static constexpr Move none() { return Move(0); }   // 无效值，表示特殊值。起始位置=0，目标位置=0
+    static constexpr Move none() { return Move(0); }   // 无效值，表示特殊值。起始位置=0，目标位置=0，使用UCI表示法表示为“(none)”
 
     constexpr bool operator==(const Move& m) const { return data == m.data; }
     constexpr bool operator!=(const Move& m) const { return data != m.data; }

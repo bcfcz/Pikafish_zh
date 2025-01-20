@@ -473,7 +473,7 @@ void UCIEngine::position(std::istringstream& is) {
     if (token == "startpos")
     {
         fen = StartFEN;
-        is >> token;  // Consume the "moves" token, if any
+        is >> token;  // 吞掉moves字符串，不考虑
     }
     else if (token == "fen")
         while (is >> token && token != "moves")
@@ -503,10 +503,10 @@ WinRateParams win_rate_params(const Position& pos) {
     int material = 10 * pos.count<ROOK>() + 5 * pos.count<KNIGHT>() + 5 * pos.count<CANNON>()
                  + 3 * pos.count<BISHOP>() + 2 * pos.count<ADVISOR>() + pos.count<PAWN>();
 
-    // The fitted model only uses data for material counts in [17, 110], and is anchored at count 65.
+    // 拟合模型仅使用子力计数在[17, 110]范围内的数据，并以65为基准
     double m = std::clamp(material, 17, 110) / 65.0;
 
-    // Return a = p_a(material) and b = p_b(material), see github.com/official-stockfish/WDL_model
+    // 返回 a = p_a(子力) 和 b = p_b(子力)，详见 github.com/official-stockfish/WDL_model
     constexpr double as[] = {220.59891365, -810.35730430, 928.68185198, 79.83955423};
     constexpr double bs[] = {61.99287416, -233.72674182, 325.85508322, -68.72720854};
 
@@ -516,13 +516,13 @@ WinRateParams win_rate_params(const Position& pos) {
     return {a, b};
 }
 
-// The win rate model is 1 / (1 + exp((a - eval) / b)), where a = p_a(material) and b = p_b(material).
-// It fits the LTC fishtest statistics rather accurately.
+// 胜率模型为 1 / (1 + exp((a - 评估值) / b))，其中 a = p_a(子力) 和 b = p_b(子力)
+// 模型准确拟合了 LTC fishtest 统计数据
 int win_rate_model(Value v, const Position& pos) {
 
     auto [a, b] = win_rate_params(pos);
 
-    // Return the win rate in per mille units, rounded to the nearest integer.
+    // 返回以千分单位表示的胜率，并四舍五入到最接近的整数
     return int(0.5 + 1000 / (1 + std::exp((a - double(v)) / b)));
 }
 }
@@ -539,13 +539,14 @@ std::string UCIEngine::format_score(const Score& s) {
     return s.visit(format);
 }
 
-// Turns a Value to an integer centipawn number,
-// without treatment of mate and similar special scores.
+// 将 Value 转换为整数厘兵（=百分之一兵）分值，
+// 不处理绝杀和其他类似的特殊分数。
+// 厘兵是国际象棋的一个分值单位，一个兵的价值为100厘兵，英语是Centipawn，简称cp（不是couple！）
 int UCIEngine::to_cp(Value v, const Position& pos) {
 
-    // In general, the score can be defined via the WDL as
-    // (log(1/L - 1) - log(1/W - 1)) / (log(1/L - 1) + log(1/W - 1)).
-    // Based on our win_rate_model, this simply yields v / a.
+    // 一般来说，得分可以通过 WDL 定义为
+    // (log(1/L - 1) - log(1/W - 1)) / (log(1/L - 1) + log(1/W - 1))。
+    // 根据我们的 win_rate_model，这简单表示成 v / a。
 
     auto [a, b] = win_rate_params(pos);
 
@@ -563,6 +564,7 @@ std::string UCIEngine::wdl(Value v, const Position& pos) {
     return ss.str();
 }
 
+// 将一个位置转换成字母+数字的表示形式，如a0
 std::string UCIEngine::square(Square s) {
     return std::string{char('a' + file_of(s)), char('0' + rank_of(s))};
 }
@@ -571,7 +573,7 @@ std::string UCIEngine::move(Move m) {
     if (m == Move::none())
         return "(none)";
 
-    if (m == Move::null())
+    if (m == Move::null()) // 空着
         return "0000";
 
     Square from = m.from_sq();
@@ -598,10 +600,10 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
     std::stringstream ss;
 
     ss << "info";
-    ss << " depth " << info.depth                 //
-       << " seldepth " << info.selDepth           //
-       << " multipv " << info.multiPV             //
-       << " score " << format_score(info.score);  //
+    ss << " depth " << info.depth                 // 深度（=层数）
+       << " seldepth " << info.selDepth           // 选择性搜索深度，全称Selective Depth
+       << " multipv " << info.multiPV             // 第几个着法
+       << " score " << format_score(info.score);  // 分数
 
     if (showWDL)
         ss << " wdl " << info.wdl;
@@ -609,12 +611,12 @@ void UCIEngine::on_update_full(const Engine::InfoFull& info, bool showWDL) {
     if (!info.bound.empty())
         ss << " " << info.bound;
 
-    ss << " nodes " << info.nodes        //
-       << " nps " << info.nps            //
-       << " hashfull " << info.hashfull  //
-       << " tbhits " << info.tbHits      //
-       << " time " << info.timeMs        //
-       << " pv " << info.pv;             //
+    ss << " nodes " << info.nodes        // 节点数
+       << " nps " << info.nps            // 每秒搜索的节点数
+       << " hashfull " << info.hashfull  // 代表置换表内的局面被替换或查询过的占比，千分数
+       << " tbhits " << info.tbHits      // 置换表命中率
+       << " time " << info.timeMs        // 搜索时间
+       << " pv " << info.pv;             // 最佳走法序列（主要变例）
 
     sync_cout << ss.str() << sync_endl;
 }
@@ -623,9 +625,9 @@ void UCIEngine::on_iter(const Engine::InfoIter& info) {
     std::stringstream ss;
 
     ss << "info";
-    ss << " depth " << info.depth                     //
-       << " currmove " << info.currmove               //
-       << " currmovenumber " << info.currmovenumber;  //
+    ss << " depth " << info.depth                     // 深度
+       << " currmove " << info.currmove               // 当前正在搜索的着法
+       << " currmovenumber " << info.currmovenumber;  // 着法序号
 
     sync_cout << ss.str() << sync_endl;
 }

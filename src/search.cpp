@@ -530,8 +530,8 @@ Value Search::Worker::search(
     ss->inCheck        = bool(pos.checkers()); // 是否为将军状态
     priorCapture       = pos.captured_piece(); // 之前吃的棋子
     Color us           = pos.side_to_move(); // 我方的颜色
-    ss->moveCount      = 0;
-    bestValue          = -VALUE_INFINITE;
+    ss->moveCount      = 0; // 重置当前局面中合法着法的数量
+    bestValue          = -VALUE_INFINITE; // 将bestValue初始化为负无穷。只要存在一个有效的着法，bestValue的值就会比初始值大。
     maxValue           = VALUE_INFINITE;
 
     // Check for the available remaining time
@@ -540,10 +540,11 @@ Value Search::Worker::search(
         main_manager()->check_time(*thisThread);
 
     // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
-    // 用于将selDepth信息发送到GUI（selDepth计数从1开始，层数从0开始）
+    // 用于将selDepth（选择性搜索深度）信息发送到GUI（selDepth计数从1开始，层数从0开始）
     if (PvNode && thisThread->selDepth < ss->ply + 1) // 相当于max操作
         thisThread->selDepth = ss->ply + 1;
 
+    // 如果不是根节点
     if (!rootNode)
     {
         // Step 2. Check for aborted search and repetition
@@ -559,13 +560,14 @@ Value Search::Worker::search(
             // We can guarantee to get at least a draw score during searching for that line
             // 2次重复的裁决结果是我们可以将死对方（MATE），对手唯一的机会是和棋
             // 在寻找这一线路的过程中，我们可以保证至少获得一个和棋的结果
-            // TODO: 修复机翻错误
+            // 因此分数下界为和棋
             if (result > VALUE_DRAW)
                 alpha = std::max(alpha, VALUE_DRAW - 1);
             // 2 fold result is mated for us, the only chance for us is to get a draw
             // We can guarantee to get no more than a draw score during searching for that line
             // 2次重复的裁决结果对我们来说是必输的（MATED），我们唯一的希望就是争取和棋
             // 在寻找那条路线的过程中，我们能保证得到的最好结果就是和棋
+            // 因此分数上界为和棋
             else
                 beta = std::min(beta, VALUE_DRAW + 1);
         }
@@ -580,17 +582,18 @@ Value Search::Worker::search(
         // because we will never beat the current alpha. Same logic but with reversed
         // signs apply also in the opposite condition of being mated instead of giving
         // mate. In this case, return a fail-high score.
-        // 第 3 步：将杀距离剪枝。即使我们在下一步走棋就能将杀，我们的得分最多也只是 mate_in(ss->ply + 1)，
-        // 但如果 alpha 值已经更大，因为向上在树中找到了更短的将杀，那么就没有必要继续搜索，因为我们永远无法超越当前的 alpha 值。
-        // 同样的逻辑，但符号相反，也适用于相反的情况，即被将杀而不是给予将杀。在这种情况下，返回一个高失败得分。
-        alpha = std::max(mated_in(ss->ply), alpha);
-        beta  = std::min(mate_in(ss->ply + 1), beta);
-        if (alpha >= beta)
+        // 第 3 步：绝杀距离剪枝。即使我们在下一步走棋就能绝杀，我们的得分最多也只是mate_in(ss->ply + 1)，
+        // 但如果alpha值已经更大，因为向上在树中找到了更短的绝杀，那么就没有必要继续搜索，因为我们永远无法超越当前的alpha值。
+        // 同样的逻辑，但符号相反，也适用于相反的情况，即被绝杀而不是给予绝杀。在这种情况下，返回一个fail-high得分。
+        alpha = std::max(mated_in(ss->ply), alpha); // 最差的情况是被对方将死
+        beta  = std::min(mate_in(ss->ply + 1), beta); // 最好的情况是在下一步将死对方
+        if (alpha >= beta) // Alpha-Beta剪枝
             return alpha;
     }
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
+    // 初始化
     bestMove            = Move::none();
     (ss + 2)->cutoffCnt = 0;
     Square prevSq = ((ss - 1)->currentMove).is_ok() ? ((ss - 1)->currentMove).to_sq() : SQ_NONE;
@@ -598,25 +601,29 @@ Value Search::Worker::search(
 
     // Step 4. Transposition table lookup
     // 第4步. 查找置换表
-    excludedMove                   = ss->excludedMove;
-    posKey                         = pos.key(); // 获取当前局面的key
-    auto [ttHit, ttData, ttWriter] = tt.probe(posKey);
+    excludedMove                   = ss->excludedMove; // 如果当前局面存在排除的着法，则将其赋值
+    posKey                         = pos.key(); // 获取当前局面的key（哈希键）
+    auto [ttHit, ttData, ttWriter] = tt.probe(posKey); // 查找置换表，返回值是std::tuple
     // Need further processing of the saved data
     // 需要对保存的数据进行进一步处理
     ss->ttHit    = ttHit;
+    // 如果是根节点，则返回PV中的着法；否则返回置换表中的着法。
+    // 这是为了防止在根节点置换表被覆盖后，返回错误的着法。
+    // 根节点中不进行分离，因此pvIdx是当前探索中的PV线，而pv[0]是根节点的当前最佳着法。
     ttData.move  = rootNode ? thisThread->rootMoves[thisThread->pvIdx].pv[0]
                  : ttHit    ? ttData.move
                             : Move::none();
+    // 当前局面在置换表中注册的分值
     ttData.value = ttHit ? value_from_tt(ttData.value, ss->ply, pos.rule60_count()) : VALUE_NONE;
     ss->ttPv     = excludedMove ? ss->ttPv : PvNode || (ttHit && ttData.is_pv);
     ttCapture    = ttData.move && pos.capture(ttData.move);
 
     // At this point, if excluded, skip straight to step 5, static eval. However,
     // to save indentation, we list the condition in all code between here and there.
-    // 此时，如果被排除，则直接跳到第5步，静态评估。但是，为了节省缩进空间，我们将在此处到那里的所有代码中列出该条件。
+    // 此时，如果被排除，则直接跳到第5步，静态评估。但是，为了节省缩进空间，我们将在此处到那里的所有代码中列出该条件
 
     // At non-PV nodes we check for an early TT cutoff
-    // 在非PV节点，我们检查是否可以提前进行置换表截断。
+    // 在非PV节点，我们检查是否可以提前进行置换表截断
     if (!PvNode && !excludedMove && ttData.depth > depth - (ttData.value <= beta)
         && is_valid(ttData.value)  // Can happen when !ttHit or when access race in probe()
         && (ttData.bound & (ttData.value >= beta ? BOUND_LOWER : BOUND_UPPER))
@@ -638,11 +645,14 @@ Value Search::Worker::search(
 
         // Partial workaround for the graph history interaction problem
         // For high rule60 counts don't produce transposition table cutoffs.
+        // 针对图历史交互问题的部分解决方法
+        // 当rule60计数较高时，不进行置换表剪枝
         if (pos.rule60_count() < 110)
             return ttData.value;
     }
 
     // Step 5. Static evaluation of the position
+    // 第5步. 局面的静态评估
     Value      unadjustedStaticEval = VALUE_NONE;
     const auto correctionValue      = correction_value(*thisThread, pos, ss);
     if (ss->inCheck)
@@ -1418,6 +1428,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     Color us = pos.side_to_move();
 
     // Step 1. Initialize node
+    // 第1步. 初始化节点
     if (PvNode)
     {
         (ss + 1)->pv = pv;
