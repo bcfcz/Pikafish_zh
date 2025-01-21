@@ -52,7 +52,7 @@ using namespace Search;
 namespace {
 
 // Futility margin
-// 无用剪枝
+// 无用剪枝相关
 Value futility_margin(Depth d, bool noTtCutNode, bool improving, bool oppWorsening) {
     Value futilityMult       = 140 - 33 * noTtCutNode;
     Value improvingDeduction = improving * futilityMult * 2;
@@ -134,87 +134,96 @@ void Search::Worker::ensure_network_replicated() {
     (void) (network[numaAccessToken]);
 }
 
+// 开始搜索的入口函数，属于 Search::Worker 类
 void Search::Worker::start_searching() {
 
-    // Non-main threads go directly to iterative_deepening()
+    // 非主线程直接进入迭代加深搜索
     if (!is_mainthread())
     {
-        iterative_deepening();
-        return;
+        iterative_deepening();  // 非主线程直接执行迭代加深算法
+        return;                 // 非主线程后续无需处理其他逻辑
     }
 
+    /*********************** 主线程专属逻辑 ***********************/
+    // 初始化时间管理器（计算剩余时间、分配时间策略等）
     main_manager()->tm.init(limits, rootPos.side_to_move(), rootPos.game_ply(), options,
                             main_manager()->originalTimeAdjust);
-    tt.new_search();
+    tt.new_search();  // 重置置换表（Transposition Table），标记新搜索开始
 
+    // 处理无有效着法的特殊情况
     if (rootMoves.empty())
     {
-        rootMoves.emplace_back(Move::none());
+        rootMoves.emplace_back(Move::none());  // 插入一个无效着法占位
+        // 通知无有效着法的结果（直接输棋）
         main_manager()->updates.onUpdateNoMoves({0, {-VALUE_MATE, rootPos}});
     }
     else
     {
-        threads.start_searching();  // start non-main threads
-        iterative_deepening();      // main thread start searching
+        threads.start_searching();  // 启动所有非主线程开始搜索
+        iterative_deepening();      // 主线程自身也开始迭代深化搜索
     }
 
-    // When we reach the maximum depth, we can arrive here without a raise of
-    // threads.stop. However, if we are pondering or in an infinite search,
-    // the UCI protocol states that we shouldn't print the best move before the
-    // GUI sends a "stop" or "ponderhit" command. We therefore simply wait here
-    // until the GUI sends one of those commands.
+    /*********************** 搜索结束后的同步处理 ***********************/
+    /* 当达到最大深度时，可能未触发 threads.stop。但在ponder或无限搜索模式下，
+       UCI协议要求必须在收到"stop"或"ponderhit"后才能输出最佳着法 */
+    // 忙等待：直到收到停止信号 或 退出ponder/无限模式
     while (!threads.stop && (main_manager()->ponder || limits.infinite))
-    {}  // Busy wait for a stop or a ponder reset
+    {}  // 空循环等待，消耗CPU但响应及时
 
-    // Stop the threads if not already stopped (also raise the stop if
-    // "ponderhit" just reset threads.ponder).
-    threads.stop = true;
+    threads.stop = true;  // 强制设置停止标志，确保所有线程终止
 
-    // Wait until all threads have finished
-    threads.wait_for_search_finished();
+    threads.wait_for_search_finished();  // 阻塞等待所有线程完全停止
 
-    // When playing in 'nodes as time' mode, subtract the searched nodes from
-    // the available ones before exiting.
+    // 处理"nodes as time"模式：将实际时间转换为虚拟节点数进行管理
     if (limits.npmsec)
         main_manager()->tm.advance_nodes_time(threads.nodes_searched()
                                               - limits.inc[rootPos.side_to_move()]);
 
-    Worker* bestThread = this;
+    /*********************** 确定最佳结果并输出 ***********************/
+    Worker* bestThread = this;  // 默认当前线程为最佳
 
+    // 当启用单线MultiPV且非固定深度搜索时，从所有线程中选取最佳
     if (int(options["MultiPV"]) == 1 && !limits.depth && rootMoves[0].pv[0] != Move::none())
         bestThread = threads.get_best_thread()->worker.get();
 
+    // 记录最佳分数用于后续搜索参考
     main_manager()->bestPreviousScore        = bestThread->rootMoves[0].score;
     main_manager()->bestPreviousAverageScore = bestThread->rootMoves[0].averageScore;
 
-    // Send again PV info if we have a new best thread
+    // 如果最佳线程非当前线程，需重新发送其PV信息
     if (bestThread != this)
         main_manager()->pv(*bestThread, threads, tt, bestThread->completedDepth);
 
+    // 准备ponder着法（对手的预期回应）
     std::string ponder;
+    if (bestThread->rootMoves[0].pv.size() > 1 ||  // PV列表中有后续着法
+        // 或从置换表中提取ponder着法（例如哈希表中有历史信息）
+        bestThread->rootMoves[0].extract_ponder_from_tt(tt, rootPos))
+        ponder = UCIEngine::move(bestThread->rootMoves[0].pv[1]);  // 取PV的第二个着法作为ponder
 
-    if (bestThread->rootMoves[0].pv.size() > 1
-        || bestThread->rootMoves[0].extract_ponder_from_tt(tt, rootPos))
-        ponder = UCIEngine::move(bestThread->rootMoves[0].pv[1]);
-
+    // 转换最佳着法为UCI格式并通知上层
     auto bestmove = UCIEngine::move(bestThread->rootMoves[0].pv[0]);
-    main_manager()->updates.onBestmove(bestmove, ponder);
+    main_manager()->updates.onBestmove(bestmove, ponder);  // 触发最佳着法回调
 }
 
 // Main iterative deepening loop. It calls search()
 // repeatedly with increasing depth until the allocated thinking time has been
 // consumed, the user stops the search, or the maximum search depth is reached.
+
+// 主要迭代加深循环。不断调用search()增加搜索深度，直到时间耗尽、用户停止或达到最大深度
 void Search::Worker::iterative_deepening() {
 
+    // 获取主线程指针（如果是主线程）
     SearchManager* mainThread = (is_mainthread() ? main_manager() : nullptr);
 
+    // 存储最佳走法序列（主要变例，Principal Variation）的数组
     Move pv[MAX_PLY + 1];
 
     Depth lastBestMoveDepth = 0;
     Value lastBestScore     = -VALUE_INFINITE;
     auto  lastBestPV        = std::vector{Move::none()};
 
-    Value  alpha, beta;
+    Value  alpha, beta; // Alpha-Beta剪枝变量
     Value  bestValue     = -VALUE_INFINITE;
     Color  us            = rootPos.side_to_move();
     double timeReduction = 1, totBestMoveChanges = 0;
@@ -314,6 +323,7 @@ void Search::Worker::iterative_deepening() {
                 // If search has been stopped, we break immediately. Sorting is
                 // safe because RootMoves is still valid, although it refers to
                 // the previous iteration.
+                // 检查停止信号
                 if (threads.stop)
                     break;
 
@@ -390,6 +400,7 @@ void Search::Worker::iterative_deepening() {
             continue;
 
         // Have we found a "mate in x"?
+        // 检查是否找到指定步数内的杀棋
         if (limits.mate && rootMoves[0].score == rootMoves[0].uciScore
             && ((rootMoves[0].score >= VALUE_MATE_IN_MAX_PLY
                  && VALUE_MATE - rootMoves[0].score <= 2 * limits.mate)
@@ -406,6 +417,7 @@ void Search::Worker::iterative_deepening() {
         }
 
         // Do we have time for the next iteration? Can we stop searching now?
+        // 时间管理逻辑
         if (limits.use_time_management() && !threads.stop && !mainThread->stopOnPonderhit)
         {
             int nodesEffort = rootMoves[0].effort * 144 / std::max(size_t(1), size_t(nodes));

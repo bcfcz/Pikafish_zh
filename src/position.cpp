@@ -1159,6 +1159,8 @@ bool Position::rule_judge(Value& result, int ply) {
 
 // Flips position with the white and black sides reversed. This
 // is only useful for debugging e.g. for finding evaluation symmetry bugs.
+
+// 翻转棋盘，使白方和黑方的位置互换，仅用于调试，例如用于发现评估对称性错误
 void Position::flip() {
 
     string            f, token;

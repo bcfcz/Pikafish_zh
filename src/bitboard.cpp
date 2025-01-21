@@ -48,15 +48,17 @@ Magic KnightToMagics[SQUARE_NB];
 
 namespace {
 
-Bitboard RookTable[0x108000];    // To store rook attacks
-Bitboard CannonTable[0x108000];  // To store cannon attacks
-Bitboard BishopTable[0x228];     // To store bishop attacks
-Bitboard KnightTable[0x380];     // To store knight attacks
-Bitboard KnightToTable[0x3E0];   // To store by knight attacks
+Bitboard RookTable[0x108000];    // 存储车的攻击
+Bitboard CannonTable[0x108000];  // 存储炮的攻击
+Bitboard BishopTable[0x228];     // 存储相象的攻击
+Bitboard KnightTable[0x380];     // 存储马的攻击
+Bitboard KnightToTable[0x3E0];   // To store by knight attacks（ToDo: 未知）
 
+// 马的所有可能移动方向（8个日字形方向）
 const std::set<Direction> KnightDirections{2 * SOUTH + WEST, 2 * SOUTH + EAST, SOUTH + 2 * WEST,
                                            SOUTH + 2 * EAST, NORTH + 2 * WEST, NORTH + 2 * EAST,
                                            2 * NORTH + WEST, 2 * NORTH + EAST};
+// 象/相的所有可能移动方向（4个田字形对角线方向）
 const std::set<Direction> BishopDirections{2 * NORTH_EAST, 2 * SOUTH_EAST, 2 * SOUTH_WEST,
                                            2 * NORTH_WEST};
 
@@ -158,80 +160,107 @@ void Bitboards::init() {
 
 namespace {
 
+// 生成滑动棋子（车、炮）的攻击范围模板函数
+// pt: 棋子类型（ROOK或CANNON），sq: 起始位置，occupied: 障碍物位棋盘
 template<PieceType pt>
 Bitboard sliding_attack(Square sq, Bitboard occupied) {
-    assert(pt == ROOK || pt == CANNON);
+    assert(pt == ROOK || pt == CANNON); // 仅处理车和炮
     Bitboard attack = 0;
 
-    for (auto const& d : {NORTH, SOUTH, EAST, WEST})
-    {
-        bool hurdle = false;
-        for (Square s = sq + d; is_ok(s) && distance(s - d, s) == 1; s += d)
+    // 遍历四个基本方向：北、南、东、西（中国象棋车炮的直线移动）
+    for (auto const& d : {NORTH, SOUTH, EAST, WEST}) {
+        bool hurdle = false; // 炮专用标志：是否已跨越障碍
+        
+        // 沿方向逐步移动：s从起始点开始，每次增加方向向量
+        for (Square s = sq + d; 
+             is_ok(s) && distance(s - d, s) == 1; // 检查坐标合法性及步长有效性
+             s += d) 
         {
+            // 车始终添加路径，炮仅在跨越障碍后添加攻击位置
             if (pt == ROOK || hurdle)
                 attack |= s;
 
-            if (occupied & s)
-            {
-                if (pt == CANNON && !hurdle)
+            // 遇到障碍物时的处理逻辑
+            if (occupied & s) {
+                if (pt == CANNON && !hurdle) // 炮第一次遇到障碍物时标记为跨越
                     hurdle = true;
-                else
+                else                         // 车直接停止，炮跨越后再次遇到障碍物时停止
                     break;
             }
         }
     }
-
     return attack;
 }
 
+/* 生成特定方向的蹩腿位置（用于马/象）*/
+// pt: 棋子类型（BISHOP/KNIGHT/KNIGHT_TO）
+// d: 移动方向，s: 起始位置，返回蹩腿位置位棋盘
 template<PieceType pt>
 Bitboard lame_leaper_path(Direction d, Square s) {
     Bitboard b  = 0;
     Square   to = s + d;
+    
+    // 有效性检查：目标位置合法且移动距离不超过3（适应中国象棋规则）
     if (!is_ok(to) || distance(s, to) >= 4)
         return b;
 
-    // If piece type is by knight attacks, swap the source and destination square
-    if (pt == KNIGHT_TO)
-    {
-        std::swap(s, to);
-        d = -d;
+    // KNIGHT_TO类型特殊处理：反向计算攻击来源（用于攻击目标查询）
+    if (pt == KNIGHT_TO) {
+        std::swap(s, to); // 交换起点终点
+        d = -d;           // 方向取反
     }
 
-    Direction dr = d > 0 ? NORTH : SOUTH;
-    Direction df = (std::abs(d % NORTH) < NORTH / 2 ? d % NORTH : -(d % NORTH)) < 0 ? WEST : EAST;
+    // 分解方向向量为纵向（dr）和横向（df）分量
+    Direction dr = d > 0 ? NORTH : SOUTH; // 纵向分量（南北）
+    Direction df = (std::abs(d % NORTH) < NORTH/2 ? d%NORTH : -(d%NORTH)) < 0 
+                   ? WEST : EAST; // 横向分量（东西）
 
+    // 计算坐标差判断移动类型（优先处理横向或纵向蹩腿）
     int diff = std::abs(file_of(to) - file_of(s)) - std::abs(rank_of(to) - rank_of(s));
-    if (diff > 0)
+    
+    // 根据坐标差决定蹩腿位置：
+    if (diff > 0)       // 横向差更大，蹩腿位置为横向
         s += df;
-    else if (diff < 0)
+    else if (diff < 0)  // 纵向差更大，蹩腿位置为纵向
         s += dr;
-    else
+    else                // 相等时取对角线方向（象）
         s += df + dr;
 
-    b |= s;
+    b |= s; // 记录蹩腿位置
     return b;
 }
 
+/* 生成棋子所有可能移动路径的蹩腿位置 */
+// pt: 棋子类型（BISHOP/KNIGHT）
 template<PieceType pt>
 Bitboard lame_leaper_path(Square s) {
     Bitboard b = 0;
+    // 遍历棋子所有可能方向：象用田字方向，马用日字方向
     for (const auto& d : pt == BISHOP ? BishopDirections : KnightDirections)
-        b |= lame_leaper_path<pt>(d, s);
+        b |= lame_leaper_path<pt>(d, s); // 收集所有方向的蹩腿位置
+    
+    // 象的特殊处理：限制在己方半场（通过HalfBB数组过滤）
     if (pt == BISHOP)
-        b &= HalfBB[rank_of(s) > RANK_4];
+        b &= HalfBB[rank_of(s) > RANK_4]; // RANK_4为楚河汉界分界线
     return b;
 }
 
+/* 生成考虑蹩腿规则的实际攻击范围 */
+// pt: 棋子类型（BISHOP/KNIGHT）
 template<PieceType pt>
 Bitboard lame_leaper_attack(Square s, Bitboard occupied) {
     Bitboard b = 0;
-    for (const auto& d : pt == BISHOP ? BishopDirections : KnightDirections)
-    {
+    // 遍历所有可能移动方向
+    for (const auto& d : pt == BISHOP ? BishopDirections : KnightDirections) {
         Square to = s + d;
-        if (is_ok(to) && distance(s, to) < 4 && !(lame_leaper_path<pt>(d, s) & occupied))
-            b |= to;
+        // 有效性检查：目标合法、距离合理、蹩腿位置无阻挡
+        if (is_ok(to) && distance(s, to) < 4 && 
+            !(lame_leaper_path<pt>(d, s) & occupied)) 
+        {
+            b |= to; // 添加可达位置
+        }
     }
+    // 象的特殊处理：限制在己方半场
     if (pt == BISHOP)
         b &= HalfBB[rank_of(s) > RANK_4];
     return b;

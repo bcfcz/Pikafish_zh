@@ -244,6 +244,7 @@ enum Square : int {
 // clang-format on
 
 // 方向
+// 上北下南左西右东
 enum Direction : int {
     NORTH = 9,
     EAST  = 1,

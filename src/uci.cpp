@@ -83,81 +83,83 @@ void UCIEngine::init_search_update_listeners() {
     engine.set_on_verify_networks([](const auto& s) { print_info_string(s); });
 }
 
+// UCI引擎主循环函数，处理来自GUI或命令行的各种UCI指令
 void UCIEngine::loop() {
     std::string token, cmd;
 
+    // 将命令行参数拼接为命令字符串（允许通过命令行直接发送命令）
     for (int i = 1; i < cli.argc; ++i)
         cmd += std::string(cli.argv[i]) + " ";
 
-    do
-    {
-        if (cli.argc == 1
-            && !getline(std::cin, cmd))  // Wait for an input or an end-of-file (EOF) indication
-            cmd = "quit";
+    do {  // 主命令处理循环
+        // 如果没有命令行参数，则从标准输入读取命令
+        if (cli.argc == 1 && !getline(std::cin, cmd))  // 等待输入或EOF
+            cmd = "quit";  // 遇到EOF时自动退出
 
-        std::istringstream is(cmd);
+        std::istringstream is(cmd);  // 使用字符串流解析命令
 
-        token.clear();  // Avoid a stale if getline() returns nothing or a blank line
-        is >> std::skipws >> token;
+        token.clear();  // 清除前一个命令的token
+        is >> std::skipws >> token;  // 跳过空白读取第一个token
 
-        if (token == "quit" || token == "stop")
+        // 命令分发处理
+        if (token == "quit" || token == "stop")  // 停止引擎命令
             engine.stop();
 
-        // The GUI sends 'ponderhit' to tell that the user has played the expected move.
-        // So, 'ponderhit' is sent if pondering was done on the same move that the user
-        // has played. The search should continue, but should also switch from pondering
-        // to the normal search.
+        // 处理"ponderhit"指令（当对手走出预期着法时触发）
         else if (token == "ponderhit")
-            engine.set_ponderhit(false);
+            engine.set_ponderhit(false);  // 关闭ponder模式，转正常搜索
 
-        else if (token == "uci")
-        {
+        // UCI协议初始化命令
+        else if (token == "uci") {
+            // 发送引擎信息（包含版本号、作者等）
             sync_cout << "id name " << engine_info(true) << "\n"
-                      << engine.get_options() << sync_endl;
-
-            sync_cout << "uciok" << sync_endl;
+                      << engine.get_options() << sync_endl;  // 输出可配置参数
+            sync_cout << "uciok" << sync_endl;  // 表示UCI初始化完成
         }
 
+        // 设置引擎参数命令
         else if (token == "setoption")
-            setoption(is);
-        else if (token == "go")
-        {
-            // send info strings after the go command is sent for old GUIs and python-chess
+            setoption(is);  // 调用参数设置函数
+        // 开始搜索命令
+        else if (token == "go") {
             print_info_string(engine.numa_config_information_as_string());
             print_info_string(engine.thread_allocation_information_as_string());
-            go(is);
+            go(is);  // 调用搜索处理函数
         }
+        // 设置棋盘位置命令
         else if (token == "position")
             position(is);
+        // 处理直接发送FEN或startpos的情况（非标准UCI，增强兼容性）
         else if (token == "fen" || token == "startpos")
-            is.seekg(0), position(is);
-        else if (token == "ucinewgame") // 新局，可清除置换表等
-            engine.search_clear();
+            is.seekg(0), position(is);  // 重置流指针并处理位置
+        // 新游戏命令（用于重置引擎状态）
+        else if (token == "ucinewgame")
+            engine.search_clear();  // 清除置换表等历史信息
+        // 准备状态确认命令
         else if (token == "isready")
             sync_cout << "readyok" << sync_endl;
 
-        // Add custom non-UCI commands, mainly for debugging purposes.
-        // These commands must not be used during a search!
-        else if (token == "flip")
+        // 以下为自定义调试命令（非UCI标准）
+        else if (token == "flip")  // 翻转棋盘，使白方和黑方的位置互换，仅用于调试，例如用于发现评估对称性错误
             engine.flip();
-        else if (token == "bench")
+        else if (token == "bench")  // 运行bench
             bench(is);
-        else if (token == BenchmarkCommand)
+        else if (token == BenchmarkCommand)  // 运行speedtest
             benchmark(is);
-        else if (token == "d")
+        else if (token == "d")  // 可视化当前棋盘状态
             sync_cout << engine.visualize() << sync_endl;
-        else if (token == "eval")
+        else if (token == "eval")  // 输出当前局面评估细节
             engine.trace_eval();
-        else if (token == "compiler")
+        else if (token == "compiler")  // 显示编译器信息
             sync_cout << compiler_info() << sync_endl;
-        else if (token == "export_net")
-        {
+        else if (token == "export_net") {  // 导出神经网络权重
             std::optional<std::string> file;
             std::string                f;
             if (is >> std::skipws >> f)
                 file = f;
             engine.save_network(file);
         }
+        // 帮助和许可信息
         else if (token == "--help" || token == "help" || token == "--license" || token == "license")
             sync_cout
               << "\nPikafish is a powerful xiangqi engine for playing and analyzing."
@@ -167,11 +169,11 @@ void UCIEngine::loop() {
                  "\nFor any further information, visit https://github.com/official-pikafish/Pikafish#readme"
                  "\nor read the corresponding README.md and Copying.txt files distributed along with this program.\n"
               << sync_endl;
-        else if (!token.empty() && token[0] != '#')
+        else if (!token.empty() && token[0] != '#') // 未知命令处理
             sync_cout << "Unknown command: '" << cmd << "'. Type help for more information."
                       << sync_endl;
 
-    } while (token != "quit" && cli.argc == 1);  // The command-line arguments are one-shot
+    } while (token != "quit" && cli.argc == 1);  // 命令行模式单次执行，交互模式持续循环
 }
 
 Search::LimitsType UCIEngine::parse_limits(std::istream& is) {
