@@ -46,18 +46,24 @@ namespace Stockfish {
 // These fields are in the same order as accessed by TT::probe(), since memory is fastest sequentially.
 // Equally, the store order in save() matches this order.
 
+// 置换表条目结构（10字节）
+// 字段布局根据内存访问顺序优化排列
 struct TTEntry {
 
     // Convert internal bitfields to external types
+    // 将内部位域转换为外部数据结构
     TTData read() const {
         return TTData{Move(move16),           Value(value16),
                       Value(eval16),          Depth(depth8 + DEPTH_ENTRY_OFFSET),
                       Bound(genBound8 & 0x3), bool(genBound8 & 0x4)};
     }
 
+    // 判断条目是否被占用（深度值非0）
     bool is_occupied() const;
+    // 保存新条目到当前槽位
     void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, uint8_t generation8);
     // The returned age is a multiple of TranspositionTable::GENERATION_DELTA
+    // 计算相对于当前代的年龄（返回值为代的差值）
     uint8_t relative_age(const uint8_t generation8) const;
 
    private:
@@ -74,19 +80,20 @@ struct TTEntry {
 // `genBound8` is where most of the details are. We use the following constants to manipulate 5 leading generation bits
 // and 3 trailing miscellaneous bits.
 
+// 代计数相关常量
 // These bits are reserved for other things.
-static constexpr unsigned GENERATION_BITS = 3;
+static constexpr unsigned GENERATION_BITS = 3; // 代计数占用的位数
 // increment for generation field
-static constexpr int GENERATION_DELTA = (1 << GENERATION_BITS);
+static constexpr int GENERATION_DELTA = (1 << GENERATION_BITS); // 代增量
 // cycle length
-static constexpr int GENERATION_CYCLE = 255 + GENERATION_DELTA;
+static constexpr int GENERATION_CYCLE = 255 + GENERATION_DELTA; // 代循环周期
 // mask to pull out generation number
-static constexpr int GENERATION_MASK = (0xFF << GENERATION_BITS) & 0xFF;
+static constexpr int GENERATION_MASK = (0xFF << GENERATION_BITS) & 0xFF; // 代掩码
 
 // DEPTH_ENTRY_OFFSET exists because 1) we use `bool(depth8)` as the occupancy check, but
 // 2) we need to store negative depths for QS. (`depth8` is the only field with "spare bits":
 // we sacrifice the ability to store depths greater than 1<<8 less the offset, as asserted in `save`.)
-bool TTEntry::is_occupied() const { return bool(depth8); }
+bool TTEntry::is_occupied() const { return bool(depth8); } // 深度非0表示条目有效
 
 // Populates the TTEntry with a new node's data, possibly
 // overwriting an old position. The update is not atomic and can be racy.
@@ -169,15 +176,17 @@ void TranspositionTable::resize(size_t mbSize, ThreadPool& threads) {
 
 // Initializes the entire transposition table to zero,
 // in a multi-threaded way.
+// 清空置换表（多线程并行）
 void TranspositionTable::clear(ThreadPool& threads) {
     generation8              = 0;
     const size_t threadCount = threads.num_threads();
 
+    // 分块并行清零内存
     for (size_t i = 0; i < threadCount; ++i)
     {
         threads.run_on_thread(i, [this, i, threadCount]() {
             // Each thread will zero its part of the hash table
-            const size_t stride = clusterCount / threadCount;
+            const size_t stride = clusterCount / threadCount; // 每个线程处理的块数
             const size_t start  = stride * i;
             const size_t len    = i + 1 != threadCount ? stride : clusterCount - start;
 
@@ -185,6 +194,7 @@ void TranspositionTable::clear(ThreadPool& threads) {
         });
     }
 
+    // 等待所有线程完成
     for (size_t i = 0; i < threadCount; ++i)
         threads.wait_on_thread(i);
 }
@@ -193,15 +203,16 @@ void TranspositionTable::clear(ThreadPool& threads) {
 // Returns an approximation of the hashtable
 // occupation during a search. The hash is x permill full, as per UCI protocol.
 // Only counts entries which match the current generation.
+// 计算哈希表使用率（千分比）
 int TranspositionTable::hashfull(int maxAge) const {
     int maxAgeInternal = maxAge << GENERATION_BITS;
     int cnt            = 0;
     for (int i = 0; i < 1000; ++i)
         for (int j = 0; j < ClusterSize; ++j)
             cnt += table[i].entry[j].is_occupied()
-                && table[i].entry[j].relative_age(generation8) <= maxAgeInternal;
+                && table[i].entry[j].relative_age(generation8) <= maxAgeInternal; // 统计有效且未过期的条目
 
-    return cnt / ClusterSize;
+    return cnt / ClusterSize; // 每个集群取平均
 }
 
 
@@ -220,6 +231,7 @@ uint8_t TranspositionTable::generation() const { return generation8; }
 // to be replaced later. The replace value of an entry is calculated as its depth
 // minus 8 times its relative age. TTEntry t1 is considered more valuable than
 // TTEntry t2 if its replace value is greater than that of t2.
+// 查询置换表
 std::tuple<bool, TTData, TTWriter> TranspositionTable::probe(const Key key) const {
 
     TTEntry* const tte   = first_entry(key);

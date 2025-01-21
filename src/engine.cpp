@@ -40,8 +40,8 @@ namespace Stockfish {
 
 namespace NN = Eval::NNUE;
 
-constexpr auto StartFEN  = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
-constexpr int  MaxHashMB = Is64Bit ? 33554432 : 2048;
+constexpr auto StartFEN  = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"; // 初始局面
+constexpr int  MaxHashMB = Is64Bit ? 33554432 : 2048; // 哈希表（置换表）最大占用
 
 Engine::Engine(std::optional<std::string> path) :
     binaryDirectory(path ? CommandLine::get_binary_directory(*path) : ""),
@@ -49,8 +49,9 @@ Engine::Engine(std::optional<std::string> path) :
     states(new std::deque<StateInfo>(1)),
     threads(),
     network(numaContext, NN::Network({EvalFileDefaultName, "None", ""})) {
-    pos.set(StartFEN, &states->back());
+    pos.set(StartFEN, &states->back()); // 将当前局面设置为初始局面
 
+    // 定义UCI选项
     options["Debug Log File"] << Option("", [](const Option& o) {
         start_logger(o);
         return std::nullopt;

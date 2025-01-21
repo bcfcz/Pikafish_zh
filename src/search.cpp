@@ -52,7 +52,6 @@ using namespace Search;
 namespace {
 
 // Futility margin
-// 无用剪枝相关
 Value futility_margin(Depth d, bool noTtCutNode, bool improving, bool oppWorsening) {
     Value futilityMult       = 140 - 33 * noTtCutNode;
     Value improvingDeduction = improving * futilityMult * 2;
@@ -612,7 +611,7 @@ Value Search::Worker::search(
     ss->statScore = 0;
 
     // Step 4. Transposition table lookup
-    // 第4步. 查找置换表
+    // 第4步：查找置换表
     excludedMove                   = ss->excludedMove; // 如果当前局面存在排除的着法，则将其赋值
     posKey                         = pos.key(); // 获取当前局面的key（哈希键）
     auto [ttHit, ttData, ttWriter] = tt.probe(posKey); // 查找置换表，返回值是std::tuple
@@ -664,7 +663,7 @@ Value Search::Worker::search(
     }
 
     // Step 5. Static evaluation of the position
-    // 第5步. 局面的静态评估
+    // 第5步：局面的静态评估
     Value      unadjustedStaticEval = VALUE_NONE;
     const auto correctionValue      = correction_value(*thisThread, pos, ss);
     if (ss->inCheck)
@@ -737,8 +736,8 @@ Value Search::Worker::search(
 
     // Step 7. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
-    // 第7步. 无用裁剪：子节点（~40 Elo）
-    // 深度条件对于寻找绝杀很重要
+    // 第7步：无用裁剪：子节点（~40 Elo）
+    // 注意：深度条件对杀棋检测至关重要
     if (!ss->ttPv && depth < 16
         && eval - futility_margin(depth, cutNode && !ss->ttHit, improving, opponentWorsening)
                - (ss - 1)->statScore / 159
@@ -750,7 +749,7 @@ Value Search::Worker::search(
     improving |= ss->staticEval >= beta + 113;
 
     // Step 8. Null move search with verification search (~35 Elo)
-    // 第8步. 带验证的空着裁剪
+    // 第8步：带验证的空着裁剪
     if (cutNode && (ss - 1)->currentMove != Move::null() && eval >= beta
         && ss->staticEval >= beta - 8 * depth + 189 && !excludedMove && pos.major_material(us)
         && ss->ply >= thisThread->nmpMinPly && !is_loss(beta))
@@ -764,11 +763,11 @@ Value Search::Worker::search(
         ss->continuationHistory           = &thisThread->continuationHistory[0][0][NO_PIECE][0];
         ss->continuationCorrectionHistory = &thisThread->continuationCorrectionHistory[NO_PIECE][0];
 
-        pos.do_null_move(st, tt);
+        pos.do_null_move(st, tt); // 执行空着
 
         Value nullValue = -search<NonPV>(pos, ss + 1, -beta, -beta + 1, depth - R, false);
 
-        pos.undo_null_move();
+        pos.undo_null_move(); // 撤销空着
 
         // Do not return unproven mate
         if (nullValue >= beta && !is_win(nullValue))
@@ -797,6 +796,7 @@ Value Search::Worker::search(
         depth -= 2;
 
     // Use qsearch if depth <= 0
+    // 深度<=0时进行静态搜索
     if (depth <= 0)
         return qsearch<PV>(pos, ss, alpha, beta);
 
@@ -873,7 +873,7 @@ Value Search::Worker::search(
         Eval::NNUE::hint_common_parent_position(pos, network[numaAccessToken], refreshTable);
     }
 
-moves_loop:  // When in check, search starts here
+moves_loop:  // 将军时搜索从这里开始
 
     // Step 11. A small Probcut idea (~4 Elo)
     probCutBeta = beta + 441;
@@ -941,6 +941,8 @@ moves_loop:  // When in check, search starts here
 
         // Step 13. Pruning at shallow depth (~120 Elo).
         // Depth conditions are important for mate finding.
+        // 第13步：浅层剪枝
+        // 注意：深度条件对杀棋检测至关重要
         if (!rootNode && pos.major_material(us) && !is_loss(bestValue))
         {
             // Skip quiet moves if movecount exceeds our FutilityMoveCount threshold (~8 Elo)
@@ -966,6 +968,7 @@ moves_loop:  // When in check, search starts here
                 }
 
                 // SEE based pruning for captures and checks (~11 Elo)
+                // SEE静态交换剪枝
                 int seeHist = std::clamp(captHist / 28, -243 * depth, 179 * depth);
                 if (!pos.see_ge(move, -275 * depth - seeHist))
                     continue;
@@ -978,6 +981,7 @@ moves_loop:  // When in check, search starts here
                   + thisThread->pawnHistory[pawn_structure_index(pos)][movedPiece][move.to_sq()];
 
                 // Continuation history based pruning (~2 Elo)
+                // 基于历史分数的剪枝
                 if (history < -3190 * depth)
                     continue;
 
@@ -989,6 +993,7 @@ moves_loop:  // When in check, search starts here
                   ss->staticEval + (bestValue < ss->staticEval - 45 ? 215 : 96) + 120 * lmrDepth;
 
                 // Futility pruning: parent node (~13 Elo)
+                // 父节点无效性剪枝
                 if (!ss->inCheck && lmrDepth < 10 && futilityValue <= alpha)
                 {
                     if (bestValue <= futilityValue && !is_decisive(bestValue)
@@ -1000,6 +1005,7 @@ moves_loop:  // When in check, search starts here
                 lmrDepth = std::max(lmrDepth, 0);
 
                 // Prune moves with negative SEE (~4 Elo)
+                // 负SEE值剪枝
                 if (!pos.see_ge(move, -36 * lmrDepth * lmrDepth))
                     continue;
             }
@@ -1007,6 +1013,8 @@ moves_loop:  // When in check, search starts here
 
         // Step 14. Extensions (~100 Elo)
         // We take care to not overdo to avoid search getting stuck.
+        // 第14步：搜索扩展（价值约100 Elo）
+        // 注意：需谨慎控制扩展次数，避免搜索陷入死循环
         if (ss->ply < thisThread->rootDepth * 2)
         {
             // Singular extension search (~76 Elo, ~170 nElo). If all moves but one
@@ -1443,7 +1451,7 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta)
     Color us = pos.side_to_move();
 
     // Step 1. Initialize node
-    // 第1步. 初始化节点
+    // 第1步：初始化节点
     if (PvNode)
     {
         (ss + 1)->pv = pv;
