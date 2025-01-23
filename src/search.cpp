@@ -89,12 +89,15 @@ Value to_corrected_static_eval(Value v, const int cv) {
 }
 
 // History and stats update bonus, based on depth
+// 基于深度的历史和统计更新奖励 
 int stat_bonus(Depth d) { return std::min(158 * d - 87, 2168); }
 
 // History and stats update malus, based on depth
+// 基于深度的历史和统计更新减益 
 int stat_malus(Depth d) { return std::min(977 * d - 282, 1524); }
 
 // Add a small random component to draw evaluations to avoid 3-fold blindness
+// 在和棋评估中添加一个小的随机成分，以避免三重重复局面的盲点
 Value value_draw(size_t nodes) { return VALUE_DRAW - 1 + Value(nodes & 0x2); }
 
 Value value_to_tt(Value v, int ply);
@@ -119,6 +122,7 @@ Search::Worker::Worker(SharedState&                    sharedState,
                        size_t                          threadId,
                        NumaReplicatedAccessToken       token) :
     // Unpack the SharedState struct into member variables
+    // 将 共享状态 结构体解包为成员变量
     threadIdx(threadId),
     numaAccessToken(token),
     manager(std::move(sm)),
@@ -133,6 +137,8 @@ Search::Worker::Worker(SharedState&                    sharedState,
 void Search::Worker::ensure_network_replicated() {
     // Access once to force lazy initialization.
     // We do this because we want to avoid initialization during search.
+    // 访问一次以强制进行延迟初始化。
+    // 我们这样做是因为我们希望在搜索期间避免初始化。 
     (void) (network[numaAccessToken]);
 }
 
