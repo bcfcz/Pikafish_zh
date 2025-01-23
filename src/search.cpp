@@ -52,6 +52,7 @@ using namespace Search;
 namespace {
 
 // Futility margin
+// 无效剪枝边界
 Value futility_margin(Depth d, bool noTtCutNode, bool improving, bool oppWorsening) {
     Value futilityMult       = 140 - 33 * noTtCutNode;
     Value improvingDeduction = improving * futilityMult * 2;
@@ -736,7 +737,7 @@ Value Search::Worker::search(
 
     // Step 7. Futility pruning: child node (~40 Elo)
     // The depth condition is important for mate finding.
-    // 第7步：无用裁剪：子节点（~40 Elo）
+    // 第7步：无效剪枝：子节点（~40 Elo）
     // 注意：深度条件对杀棋检测至关重要
     if (!ss->ttPv && depth < 16
         && eval - futility_margin(depth, cutNode && !ss->ttHit, improving, opponentWorsening)
@@ -993,7 +994,7 @@ moves_loop:  // 将军时搜索从这里开始
                   ss->staticEval + (bestValue < ss->staticEval - 45 ? 215 : 96) + 120 * lmrDepth;
 
                 // Futility pruning: parent node (~13 Elo)
-                // 父节点无效性剪枝
+                // 父节点无效剪枝
                 if (!ss->inCheck && lmrDepth < 10 && futilityValue <= alpha)
                 {
                     if (bestValue <= futilityValue && !is_decisive(bestValue)
