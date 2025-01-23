@@ -739,6 +739,7 @@ Value Search::Worker::search(
     // The depth condition is important for mate finding.
     // 第7步：无效剪枝：子节点（~40 Elo）
     // 注意：深度条件对杀棋检测至关重要
+    // 如果静态评估减去无效剪枝边界仍然大于等于beta，说明该节点有很大可能在搜索后超过beta，发生beta截断
     if (!ss->ttPv && depth < 16
         && eval - futility_margin(depth, cutNode && !ss->ttHit, improving, opponentWorsening)
                - (ss - 1)->statScore / 159
@@ -1156,6 +1157,7 @@ moves_loop:  // 将军时搜索从这里开始
         r -= ss->statScore * 2652 / 18912;
 
         // Step 16. Late moves reduction / extension (LMR, ~117 Elo)
+        // 第16步：延迟走法缩减 / 扩展
         if (depth >= 2 && moveCount > 1)
         {
             // In general we want to cap the LMR depth search at newDepth, but when
@@ -1163,21 +1165,29 @@ moves_loop:  // 将军时搜索从这里开始
             // beyond the first move depth.
             // To prevent problems when the max value is less than the min value,
             // std::clamp has been replaced by a more robust implementation.
+            /* LMR核心思想：
+            * 对后续走法进行缩减深度的试探性搜索，若发现潜在好棋则重新完整搜索
+            * 既限制搜索宽度又避免错过关键变化 */
             Depth d = std::max(
               1, std::min(newDepth - r / 1024, newDepth + !allNode + (PvNode && !bestMove)));
 
-            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, d, true);
+            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, d, true); // 零窗口搜索
 
             // Do a full-depth search when reduced LMR search fails high
+            // 如果返回的值是fail high的（value>=alpha+1），需要重新完整搜索
             if (value > alpha && d < newDepth)
             {
+                /* 根据LMR搜索结果动态调整搜索策略：
+                * 若结果明显优于当前最佳值(bestValue)则加深搜索
+                * 若结果不够理想则保持或减少深度 */
                 // Adjust full-depth search based on LMR results - if the result was
                 // good enough search deeper, if it was bad enough search shallower.
                 const bool doDeeperSearch    = value > (bestValue + 58 + 2 * newDepth);  // (~1 Elo)
-                const bool doShallowerSearch = value < bestValue + 8;                    // (~2 Elo)
+                const bool doShallowerSearch = value < bestValue + 8;                    // (~2 Elo
 
                 newDepth += doDeeperSearch - doShallowerSearch;
 
+                // 当调整后的深度大于初始LMR深度时，执行完整搜索
                 if (newDepth > d)
                     value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, newDepth, !cutNode);
 
@@ -1293,7 +1303,7 @@ moves_loop:  // 将军时搜索从这里开始
                 if (PvNode && !rootNode)  // Update pv even in fail-high case
                     update_pv(ss->pv, move, (ss + 1)->pv);
 
-                if (value >= beta)
+                if (value >= beta) // beta截断
                 {
                     ss->cutoffCnt += !ttData.move + (extension < 2);
                     assert(value >= beta);  // Fail high
