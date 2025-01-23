@@ -82,6 +82,8 @@ int correction_value(const Worker& w, const Position& pos, Stack* ss) {
 
 // Add correctionHistory value to raw staticEval and guarantee evaluation
 // does not hit the tablebase range.
+// 将 校正历史 值添加到原始的静态评估中，并保证评估
+// 不会触及棋谱库的范围。 
 Value to_corrected_static_eval(Value v, const int cv) {
     return std::clamp(v + cv / 131072, VALUE_MATED_IN_MAX_PLY + 1, VALUE_MATE_IN_MAX_PLY - 1);
 }
