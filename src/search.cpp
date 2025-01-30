@@ -15,6 +15,16 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+/*
+Stockfish，一个基于 Glaurung 2.1 的 UCI 国际象棋引擎
+版权所有 (C) 2004-2025 Stockfish 开发者（详见 AUTHORS 文件）
+
+Stockfish 是自由软件：您可以根据自由软件基金会发布的 GNU 通用公共许可证的条款重新分发或修改它；许可证版本为第 3 版，或（由您选择）任何更高版本。
+
+Stockfish 的分发是希望它有用，但 没有任何担保；甚至没有对适销性或特定用途适用性的暗示担保。详情请参阅 GNU 通用公共许可证。
+
+您应该已经随本程序收到了 GNU 通用公共许可证的副本。如果没有，请访问 http://www.gnu.org/licenses/ 获取。
+*/
 
 #include "search.h"
 
@@ -240,15 +250,23 @@ void Search::Worker::iterative_deepening() {
     // Allocate stack with extra size to allow access from (ss - 7) to (ss + 2):
     // (ss - 7) is needed for update_continuation_histories(ss - 1) which accesses (ss - 6),
     // (ss + 2) is needed for initialization of cutOffCnt.
+    // 分配带有额外大小的栈，以便能从 (ss - 7) 访问到 (ss + 2)：
+    // 需要 (ss - 7) 是因为 update_continuation_histories (ss - 1) 会访问 (ss - 6)，
+    // 需要 (ss + 2) 是因为要初始化 cutOffCnt。
     Stack  stack[MAX_PLY + 10] = {};
     Stack* ss                  = stack + 7;
-
+  
     for (int i = 7; i > 0; --i)
     {
+        // 将 (ss - i) 的 continuationHistory 指向一个哨兵值
         (ss - i)->continuationHistory =
-          &this->continuationHistory[0][0][NO_PIECE][0];  // Use as a sentinel
+          &this->continuationHistory[0][0][NO_PIECE][0]; // Use as a sentinel // 用作哨兵
+    
+        // 将 (ss - i) 的 continuationCorrectionHistory 指向一个哨兵值
         (ss - i)->continuationCorrectionHistory = &this->continuationCorrectionHistory[NO_PIECE][0];
-        (ss - i)->staticEval                    = VALUE_NONE;
+    
+        // 将 (ss - i) 的 staticEval 设置为 VALUE_NONE，表示未评估的状态
+        (ss - i)->staticEval = VALUE_NONE;
     }
 
     for (int i = 0; i <= MAX_PLY + 2; ++i)
