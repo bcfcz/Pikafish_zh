@@ -291,6 +291,7 @@ void Search::Worker::iterative_deepening() {
     lowPlyHistory.fill(106);
 
     // Iterative deepening loop until requested to stop or the target depth is reached
+    // 迭代加深循环，直到收到停止请求或达到目标深度
     while (++rootDepth < MAX_PLY && !threads.stop
            && !(limits.depth && mainThread && rootDepth > limits.depth))
     {
