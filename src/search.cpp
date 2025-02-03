@@ -664,22 +664,25 @@ Value Search::Worker::search(
     // At non-PV nodes we check for an early TT cutoff
     // 在非PV节点，我们检查是否可以提前进行置换表截断
     if (!PvNode && !excludedMove && ttData.depth > depth - (ttData.value <= beta)
-        && is_valid(ttData.value)  // Can happen when !ttHit or when access race in probe()
+        && is_valid(ttData.value)  // Can happen when !ttHit or when access race in probe()// 可能发生在 !ttHit 时，或 probe() 中出现多线程冲突时
         && (ttData.bound & (ttData.value >= beta ? BOUND_LOWER : BOUND_UPPER))
         && (cutNode == (ttData.value >= beta) || depth > 9))
     {
         // If ttMove is quiet, update move sorting heuristics on TT hit (~2 Elo)
+        // 如果置换表移动(ttMove)是静默移动，在置换表命中时更新移动排序启发式评分（约提升2 Elo）
         if (ttData.move && ttData.value >= beta)
         {
             // Bonus for a quiet ttMove that fails high (~2 Elo)
+            // 对导致Beta剪枝的静默移动给予奖励（约+2 Elo）
             if (!ttCapture)
                 update_quiet_histories(pos, ss, *this, ttData.move, stat_bonus(depth) * 747 / 1024);
 
             // Extra penalty for early quiet moves of
             // the previous ply (~1 Elo on STC, ~2 Elo on LTC)
+            // 对前一层早期的静默移动施加额外惩罚（短时间控制+1 Elo，长时间控制+2 Elo）
             if (prevSq != SQ_NONE && (ss - 1)->moveCount <= 2 && !priorCapture)
                 update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq,
-                                              -stat_malus(depth + 1) * 1091 / 1024);
+                                            -stat_malus(depth + 1) * 1091 / 1024);
         }
 
         // Partial workaround for the graph history interaction problem
@@ -705,8 +708,17 @@ Value Search::Worker::search(
     {
         // Providing the hint that this node's accumulator will be used often
         // brings significant Elo gain (~13 Elo).
-        Eval::NNUE::hint_common_parent_position(pos, network[numaAccessToken], refreshTable);
-        unadjustedStaticEval = eval = ss->staticEval;
+        // 提示该节点的评估累加器将被频繁使用，可显著提升引擎强度（约+13 Elo）
+        // 优化原理：通过 NUMA 亲和性预加载神经网络权重，减少缓存失效
+        Eval::NNUE::hint_common_parent_position(
+            pos,                   // 当前棋盘位置
+            network[numaAccessToken], // NUMA 节点对应的神经网络（优化跨节点访问延迟）
+            refreshTable           // 神经网络权重刷新表
+        );
+
+        // 直接使用静态评估值（不进行动态调整）
+        // ss->staticEval 是之前计算的原始静态评估值
+        unadjustedStaticEval = eval = ss->staticEval; 
     }
     else if (ss->ttHit)
     {
