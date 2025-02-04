@@ -733,6 +733,7 @@ Value Search::Worker::search(
         ss->staticEval = eval = to_corrected_static_eval(unadjustedStaticEval, correctionValue);
 
         // ttValue can be used as a better position evaluation (~7 Elo)
+        // ttValue 可用作更好的局面评估（约 7 个 Elo 分） 
         if (is_valid(ttData.value)
             && (ttData.bound & (ttData.value > eval ? BOUND_LOWER : BOUND_UPPER)))
             eval = ttData.value;
@@ -743,11 +744,13 @@ Value Search::Worker::search(
         ss->staticEval = eval = to_corrected_static_eval(unadjustedStaticEval, correctionValue);
 
         // Static evaluation is saved as it was before adjustment by correction history
+        // 静态评估被保存为在通过修正历史进行调整之前的样子 
         ttWriter.write(posKey, VALUE_NONE, ss->ttPv, BOUND_NONE, DEPTH_UNSEARCHED, Move::none(),
                        unadjustedStaticEval, tt.generation());
     }
 
     // Use static evaluation difference to improve quiet move ordering (~9 Elo)
+    // 使用静态评估差异来改进安静着法的排序（约 9 个 Elo 分） 
     if (((ss - 1)->currentMove).is_ok() && !(ss - 1)->inCheck && !priorCapture)
     {
         int bonus = std::clamp(-17 * int((ss - 1)->staticEval + ss->staticEval), -1024, 2058) + 332;
@@ -761,6 +764,9 @@ Value Search::Worker::search(
     // bigger than the previous static evaluation at our turn (if we were in
     // check at our previous move we go back until we weren't in check) and is
     // false otherwise. The improving flag is used in various pruning heuristics.
+    // 设置改进标志，如果在我们回合时当前的静态评估大于之前的静态评估
+    //（如果我们在上一步移动时处于将军状态，则回溯直到我们不处于将军状态），
+    //则该标志为真，否则为假。改进标志用于各种剪枝启发式算法。 
     improving = ss->staticEval > (ss - 2)->staticEval;
 
     opponentWorsening = ss->staticEval + (ss - 1)->staticEval > 2;
@@ -768,6 +774,8 @@ Value Search::Worker::search(
     // Step 6. Razoring (~1 Elo)
     // If eval is really low, check with qsearch if we can exceed alpha. If the
     // search suggests we cannot exceed alpha, return a speculative fail low.
+    // 步骤 6. 剃刀剪枝（约 1 个 Elo 分）
+    // 如果评估值非常低，通过 qsearch 检查我们是否能超过 alpha。如果搜索表明我们不能超过 alpha，返回一个推测的失败低值。 
     if (eval < alpha - 1373 - 252 * depth * depth)
     {
         value = qsearch<NonPV>(pos, ss, alpha - 1, alpha);
