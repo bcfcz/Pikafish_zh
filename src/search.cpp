@@ -1446,25 +1446,36 @@ moves_loop:  // 将军时搜索从这里开始
                        depth, bestMove, unadjustedStaticEval, tt.generation());
 
     // Adjust correction history
-    if (!ss->inCheck && !(bestMove && pos.capture(bestMove))
-        && ((bestValue < ss->staticEval && bestValue < beta)  // negative correction & no fail high
-            || (bestValue > ss->staticEval && bestMove)))     // positive correction & no fail low
+    // 调整评估修正历史值（用于动态优化静态评估误差）
+    if (!ss->inCheck && !(bestMove && pos.capture(bestMove))    // 条件：非将军状态且最佳移动不是吃子
+        && ((bestValue < ss->staticEval && bestValue < beta)// negative correction & no fail high// 情况1：负修正（实际值 < 静态评估）且未触发Beta剪枝
+            || (bestValue > ss->staticEval && bestMove)))// positive correction & no fail low// 情况2：正修正（实际值 > 静态评估）且存在有效移动
     {
-        const auto       m             = (ss - 1)->currentMove;
-        static const int nonPawnWeight = 139;
+        const auto       m             = (ss - 1)->currentMove;  // 获取前一层移动
+        static const int nonPawnWeight = 139;                    // 非兵棋子权重系数（通过遗传算法优化得出）
 
+        // 计算基础修正值（深度加权，限制在±CORRECTION_HISTORY_LIMIT/4范围内）
         auto bonus = std::clamp(int(bestValue - ss->staticEval) * depth / 8,
                                 -CORRECTION_HISTORY_LIMIT / 4, CORRECTION_HISTORY_LIMIT / 4);
-        thisThread->pawnCorrectionHistory[us][pawn_structure_index<Correction>(pos)]
-          << bonus * 148 / 128;
-        thisThread->majorPieceCorrectionHistory[us][major_piece_index(pos)] << bonus * 185 / 128;
-        thisThread->minorPieceCorrectionHistory[us][minor_piece_index(pos)] << bonus * 101 / 128;
-        thisThread->nonPawnCorrectionHistory[WHITE][us][non_pawn_index<WHITE>(pos)]
-          << bonus * nonPawnWeight / 128;
-        thisThread->nonPawnCorrectionHistory[BLACK][us][non_pawn_index<BLACK>(pos)]
-          << bonus * nonPawnWeight / 128;
 
-        if (m.is_ok())
+        // 按棋子类型更新修正历史（系数经海量对局实验优化）：
+        // 兵型结构修正（权重148/128 ≈ 1.156）
+        thisThread->pawnCorrectionHistory[us][pawn_structure_index<Correction>(pos)] << bonus * 148 / 128;
+        
+        // 大子（后/车）位置修正（权重185/128 ≈ 1.445）
+        thisThread->majorPieceCorrectionHistory[us][major_piece_index(pos)] << bonus * 185 / 128;
+        
+        // 小子（马/象）位置修正（权重101/128 ≈ 0.789）
+        thisThread->minorPieceCorrectionHistory[us][minor_piece_index(pos)] << bonus * 101 / 128;
+        
+        // 白方非兵棋子全局修正（权重139/128 ≈ 1.086）
+        thisThread->nonPawnCorrectionHistory[WHITE][us][non_pawn_index<WHITE>(pos)] << bonus * nonPawnWeight / 128;
+        
+        // 黑方非兵棋子全局修正（同权重139/128）
+        thisThread->nonPawnCorrectionHistory[BLACK][us][non_pawn_index<BLACK>(pos)] << bonus * nonPawnWeight / 128;
+
+        // 更新前前层移动的连续修正历史（用于杀手启发式）
+        if (m.is_ok())  // 确保移动合法
             (*(ss - 2)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()] << bonus;
     }
 
