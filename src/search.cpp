@@ -807,6 +807,7 @@ Value Search::Worker::search(
         assert(eval - beta >= 0);
 
         // Null move dynamic reduction based on depth and eval
+        // 基于深度和评估的空着法动态减少 
         Depth R = std::min(int(eval - beta) / 254, 5) + depth / 3 + 5;
 
         ss->currentMove                   = Move::null();
@@ -820,15 +821,17 @@ Value Search::Worker::search(
         pos.undo_null_move(); // 撤销空着
 
         // Do not return unproven mate
+        // 不要返回未经证实的将杀 
         if (nullValue >= beta && !is_win(nullValue))
         {
             if (thisThread->nmpMinPly || depth < 15)
                 return nullValue;
 
-            assert(!thisThread->nmpMinPly);  // Recursive verification is not allowed
+            assert(!thisThread->nmpMinPly);  // Recursive verification is not allowed // 不允许递归验证 
 
             // Do verification search at high depths, with null move pruning disabled
             // until ply exceeds nmpMinPly.
+            // 在深度较高时进行验证搜索，在 ply 超过 nmpMinPly 之前禁用空着法剪枝 
             thisThread->nmpMinPly = ss->ply + 3 * (depth - R) / 4;
 
             Value v = search<NonPV>(pos, ss, beta - 1, beta, depth - R, false);
@@ -842,6 +845,8 @@ Value Search::Worker::search(
 
     // Step 9. Internal iterative reductions (~9 Elo)
     // For PV nodes without a ttMove, we decrease depth.
+    // 步骤 9. 内部迭代减少（约 9 个 Elo 分）
+    // 对于没有 TT 走法的主变节点，我们降低深度。 
     if (PvNode && !ttData.move)
         depth -= 2;
 
