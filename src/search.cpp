@@ -857,12 +857,16 @@ Value Search::Worker::search(
 
     // For cutNodes, if depth is high enough, decrease depth by 2 if there is no ttMove,
     // or by 1 if there is a ttMove with an upper bound.
+    // 对于cutNodes，当深度足够深时，如果没有ttMove，则将深度减少2；如果存在带有上界(Upper Bound)的ttMove，则将深度减少1。
     if (cutNode && depth >= 7 && (!ttData.move || ttData.bound == BOUND_UPPER))
         depth -= 1 + !ttData.move;
 
     // Step 10. ProbCut (~10 Elo)
     // If we have a good enough capture and a reduced search
     // returns a value much above beta, we can (almost) safely prune the previous move.
+    // 步骤10. ProbCut（约10 Elo）
+// 若存在足够好的吃子着法且简化搜索的返回值大幅高于beta值，
+// 则我们可以（几乎）安全地剪枝前一着法。
     probCutBeta = beta + 234 - 66 * improving;
     if (!PvNode && depth > 4
         && !is_decisive(beta)
@@ -870,6 +874,9 @@ Value Search::Worker::search(
         // probCut there and in further interactions with transposition table cutoff
         // depth is set to depth - 3 because probCut search has depth set to depth - 4
         // but we also do a move before it. So effective depth is equal to depth - 3.
+        // 若置换表中的值低于probCutBeta，则在此处及后续置换表交互中不尝试ProbCut；
+// 此处将深度设置为depth - 3，因为ProbCut搜索的深度设定为depth - 4，
+// 但在其之前还需执行一步着法，因此有效深度等于depth - 3。
         && !(ttData.depth >= depth - 3 && is_valid(ttData.value) && ttData.value < probCutBeta))
     {
         assert(probCutBeta < VALUE_INFINITE && probCutBeta > beta);
@@ -893,6 +900,7 @@ Value Search::Worker::search(
             captured   = pos.piece_on(move.to_sq());
 
             // Prefetch the TT entry for the resulting position
+            // 预取后续局面对应的置换表项
             prefetch(tt.first_entry(pos.key_after(move)));
 
             ss->currentMove = move;
@@ -905,9 +913,11 @@ Value Search::Worker::search(
             pos.do_move(move, st);
 
             // Perform a preliminary qsearch to verify that the move holds
+            // 执行预静态搜索以验证着法可行性
             value = -qsearch<NonPV>(pos, ss + 1, -probCutBeta, -probCutBeta + 1);
 
             // If the qsearch held, perform the regular search
+            // 若静态搜索验证通过，则执行常规搜索
             if (value >= probCutBeta)
                 value =
                   -search<NonPV>(pos, ss + 1, -probCutBeta, -probCutBeta + 1, depth - 4, !cutNode);
@@ -919,6 +929,7 @@ Value Search::Worker::search(
                 thisThread->captureHistory[movedPiece][move.to_sq()][type_of(captured)] << 1226;
 
                 // Save ProbCut data into transposition table
+                // 将ProbCut数据存储至置换表
                 ttWriter.write(posKey, value_to_tt(value, ss->ply), ss->ttPv, BOUND_LOWER,
                                depth - 3, move, unadjustedStaticEval, tt.generation());
                 return is_decisive(value) ? value : value - (probCutBeta - beta);
@@ -931,6 +942,7 @@ Value Search::Worker::search(
 moves_loop:  // 将军时搜索从这里开始
 
     // Step 11. A small Probcut idea (~4 Elo)
+    // 步骤11. 小型ProbCut方案（约4 Elo）
     probCutBeta = beta + 441;
     if ((ttData.bound & BOUND_LOWER) && ttData.depth >= depth - 3 && ttData.value >= probCutBeta
         && !is_decisive(beta) && is_valid(ttData.value) && !is_decisive(ttData.value))
@@ -953,6 +965,7 @@ moves_loop:  // 将军时搜索从这里开始
 
     // Step 12. Loop through all pseudo-legal moves until no moves remain
     // or a beta cutoff occurs.
+    // 步骤12. 循环遍历所有伪合法着法，直至无剩余着法或触发beta截断
     while ((move = mp.next_move()) != Move::none())
     {
         assert(move.is_ok());
@@ -961,11 +974,14 @@ moves_loop:  // 将军时搜索从这里开始
             continue;
 
         // Check for legality
+        // 检查合法性
         if (!pos.legal(move))
             continue;
 
         // At root obey the "searchmoves" option and skip moves not listed in Root Move List.
         // In MultiPV mode we also skip PV moves that have been already searched.
+        // 在根节点处遵循"searchmoves"选项，跳过未列在根着法列表中的着法；
+// 在MultiPV模式下，同时跳过已搜索过的主要变例着法(PV moves)。
         if (rootNode
             && !std::count(thisThread->rootMoves.begin() + thisThread->pvIdx,
                            thisThread->rootMoves.begin() + thisThread->pvLast, move))
