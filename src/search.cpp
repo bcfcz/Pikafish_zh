@@ -1004,6 +1004,7 @@ moves_loop:  // 将军时搜索从这里开始
         givesCheck = pos.gives_check(move);
 
         // Calculate new depth for this move
+        // 计算此移动的新深度
         newDepth = depth - 1;
 
         int delta = beta - alpha;
@@ -1017,10 +1018,12 @@ moves_loop:  // 将军时搜索从这里开始
         if (!rootNode && pos.major_material(us) && !is_loss(bestValue))
         {
             // Skip quiet moves if movecount exceeds our FutilityMoveCount threshold (~8 Elo)
+            // 如果着法数量超过我们的“无用着法数量”阈值，跳过非吃子着法（约8个埃洛等级分优势） 
             if (moveCount >= futility_move_count(improving, depth))
                 mp.skip_quiet_moves();
 
             // Reduced depth of the next LMR search
+            // 下一次LMR搜索的深度降低 
             int lmrDepth = newDepth - r / 1054;
 
             if (capture || givesCheck)
@@ -1030,6 +1033,7 @@ moves_loop:  // 将军时搜索从这里开始
                   thisThread->captureHistory[movedPiece][move.to_sq()][type_of(capturedPiece)];
 
                 // Futility pruning for captures (~2 Elo)
+                // 吃子的无效剪枝（约2个Elo等级分） 
                 if (!givesCheck && lmrDepth < 18 && !ss->inCheck)
                 {
                     Value futilityValue = ss->staticEval + 332 + 371 * lmrDepth
@@ -1039,7 +1043,7 @@ moves_loop:  // 将军时搜索从这里开始
                 }
 
                 // SEE based pruning for captures and checks (~11 Elo)
-                // SEE静态交换剪枝
+                // 基于静态交换评估（SEE）对吃子和将军进行剪枝（约11个Elo等级分） 
                 int seeHist = std::clamp(captHist / 28, -243 * depth, 179 * depth);
                 if (!pos.see_ge(move, -275 * depth - seeHist))
                     continue;
@@ -1052,7 +1056,7 @@ moves_loop:  // 将军时搜索从这里开始
                   + thisThread->pawnHistory[pawn_structure_index(pos)][movedPiece][move.to_sq()];
 
                 // Continuation history based pruning (~2 Elo)
-                // 基于历史分数的剪枝
+                // 基于历史分数的剪枝// 基于延续历史的剪枝（约2个Elo等级分） 
                 if (history < -3190 * depth)
                     continue;
 
@@ -1064,7 +1068,7 @@ moves_loop:  // 将军时搜索从这里开始
                   ss->staticEval + (bestValue < ss->staticEval - 45 ? 215 : 96) + 120 * lmrDepth;
 
                 // Futility pruning: parent node (~13 Elo)
-                // 父节点无效剪枝
+                // 父节点无效剪枝// 无效剪枝：父节点（约13个Elo等级分） 
                 if (!ss->inCheck && lmrDepth < 10 && futilityValue <= alpha)
                 {
                     if (bestValue <= futilityValue && !is_decisive(bestValue)
@@ -1076,7 +1080,7 @@ moves_loop:  // 将军时搜索从这里开始
                 lmrDepth = std::max(lmrDepth, 0);
 
                 // Prune moves with negative SEE (~4 Elo)
-                // 负SEE值剪枝
+                // 负SEE值剪枝// 对静态交换评估（SEE）为负的走法进行剪枝（约4个Elo等级分） 
                 if (!pos.see_ge(move, -36 * lmrDepth * lmrDepth))
                     continue;
             }
@@ -1100,6 +1104,15 @@ moves_loop:  // 将军时搜索从这里开始
             // 180+1.8 and longer so changing them requires tests at these types of
             // time controls. Generally, higher singularBeta (i.e closer to ttValue)
             // and lower extension margins scale well.
+            
+            // 奇异扩展搜索（约76个Elo等级分，约170个nElo等级分）。
+            // 如果在对(alpha - s, beta - s)进行搜索时，除了一步棋之外所有棋步都评估分数较低，
+            // 而只有一步在(alpha, beta)评估分数较高，那么这步棋就是奇异的，应该进行扩展。
+            // 为了验证这一点，我们对排除了转置表棋步（ttMove）的局面进行一次降低深度的搜索，
+            // 如果结果低于转置表值（ttValue）减去一个差值，那么我们将扩展转置表棋步。要避免递归奇异搜索。
+
+            // 注意：深度差值和奇异β差值已知具有非线性缩放特性。它们的值是针对180 + 1.8及更长时间控制进行优化的，
+            // 所以更改它们需要在这类时间控制下进行测试。一般来说，较高的奇异β值（即更接近ttValue）和较低的扩展差值能很好地进行缩放。 
 
             if (!rootNode && move == ttData.move && !excludedMove
                 && depth >= 4 - (thisThread->completedDepth > 32) + ss->ttPv
@@ -1131,6 +1144,11 @@ moves_loop:  // 将军时搜索从这里开始
                 // over the original beta, we assume this expected cut-node is not
                 // singular (multiple moves fail high), and we can prune the whole
                 // subtree by returning a softbound.
+                // 多切枝剪枝
+                // 基于转置表（TT）项的界限，我们假定转置表走法（ttMove）评估分数较高（fail high）。
+                // 如果在排除ttMove并进行降深度搜索后，评估分数仍高于原始的β值，
+                // 我们就假定这个预期的剪枝节点不是奇异的（多个走法评估分数较高），
+                // 并且我们可以通过返回一个软边界来对整个子树进行剪枝。 
                 else if (value >= beta && !is_decisive(value))
                     return value;
 
@@ -1140,18 +1158,26 @@ moves_loop:  // 将军时搜索从这里开始
                 // (ttValue - margin) is lower than the original beta, we do not know
                 // if the ttMove is singular or can do a multi-cut, so we reduce the
                 // ttMove in favor of other moves based on some conditions:
+                // 负扩展
+                // 如果在降深度搜索中，排除ttMove后其他走法的评估分数高于（ttValue - 差值），
+                // 但由于（ttValue - 差值）低于原始的β值而无法进行多切枝剪枝，
+                // 我们就无法确定ttMove是否为奇异走法或能否进行多切枝剪枝。
+                // 因此，基于某些条件，我们会减少对ttMove的探索，而更倾向于其他走法： 
 
                 // If the ttMove is assumed to fail high over current beta (~7 Elo)
+                // 如果假定ttMove的评估结果高于当前的beta值（约7个Elo等级分） 
                 else if (ttData.value >= beta)
                     extension = -3;
 
                 // If we are on a cutNode but the ttMove is not assumed to fail high
                 // over current beta (~1 Elo)
+                // 如果我们处于一个剪枝节点，但并不假定ttMove的评估结果高于当前的beta值（约1个Elo等级分） 
                 else if (cutNode)
                     extension = -2;
             }
 
             // Extension for capturing the previous moved piece (~1 Elo at LTC)
+            // 捕获上一步移动棋子的扩展（在长时控制下约1个Elo等级分） 
             else if (PvNode && move.to_sq() == prevSq
                      && thisThread->captureHistory[movedPiece][move.to_sq()]
                                                   [type_of(pos.piece_on(move.to_sq()))]
@@ -1160,12 +1186,15 @@ moves_loop:  // 将军时搜索从这里开始
         }
 
         // Add extension to new depth
+        // 将扩展添加到新的深度
         newDepth += extension;
 
         // Speculative prefetch as early as possible
+        // 尽早进行推测性预取 
         prefetch(tt.first_entry(pos.key_after(move)));
 
         // Update the current move (this must be done after singular extension search)
+        // 更新当前走法（此操作必须在奇异扩展搜索之后进行） 
         ss->currentMove = move;
         ss->continuationHistory =
           &thisThread->continuationHistory[ss->inCheck][capture][movedPiece][move.to_sq()];
@@ -1174,6 +1203,7 @@ moves_loop:  // 将军时搜索从这里开始
         uint64_t nodeCount = rootNode ? uint64_t(nodes) : 0;
 
         // Step 15. Make the move
+        // 步骤15. 执行这步棋 
         thisThread->nodes.fetch_add(1, std::memory_order_relaxed);
         pos.do_move(move, st, givesCheck);
 
@@ -1181,34 +1211,44 @@ moves_loop:  // 将军时搜索从这里开始
         // They are optimized to time controls of 180 + 1.8 and longer,
         // so changing them or adding conditions that are similar requires
         // tests at these types of time controls.
+        // 这些缩减调整已被证明具有非线性缩放特性。
+        // 它们针对180 + 1.8及更长时间控制进行了优化，
+        // 所以更改这些调整或添加类似条件需要在这类时间控制下进行测试。 
 
         // Decrease reduction if position is or has been on the PV (~7 Elo)
+        // 如果局面处于或曾处于主变（PV）上，则减少缩减量（约7个Elo等级分） 
         if (ss->ttPv)
             r -= 1024 + (ttData.value > alpha) * 1024 + (ttData.depth >= depth) * 1024;
 
         // Decrease reduction for PvNodes (~0 Elo on STC, ~2 Elo on LTC)
+        // 减少主变节点（PvNodes）的缩减量（快棋赛（STC）中约0个Elo等级分，慢棋赛（LTC）中约2个Elo等级分） 
         if (PvNode)
             r -= 1024;
 
         // These reduction adjustments have no proven non-linear scaling
+        // 这些缩减调整尚未证明具有非线性缩放特性 
 
         r += 330;
 
         r -= std::abs(correctionValue) / 32768;
 
         // Increase reduction for cut nodes (~4 Elo)
+        // 增加剪枝节点的缩减量（约4个Elo等级分） 
         if (cutNode)
             r += 3179 - (ttData.depth >= depth && ss->ttPv) * 949;
 
         // Increase reduction if ttMove is a capture but the current move is not a capture (~3 Elo)
+        // 如果转置表走法（ttMove）是吃子走法，但当前走法不是吃子走法，则增加缩减量（约3个Elo等级分） 
         if (ttCapture && !capture)
             r += 1401 + (depth < 8) * 1471;
 
         // Increase reduction if next ply has a lot of fail high (~5 Elo)
+        // 如果下一层次有很多评估分数较高（fail high）的情况，则增加缩减量（约5个Elo等级分） 
         if ((ss + 1)->cutoffCnt > 3)
             r += 1332 + allNode * 959;
 
         // For first picked move (ttMove) reduce reduction (~3 Elo)
+        // 对于首个选择的走法（转置表走法ttMove），减少缩减量（约3个Elo等级分） 
         else if (move == ttData.move)
             r -= 2775;
 
@@ -1223,6 +1263,7 @@ moves_loop:  // 将军时搜索从这里开始
                           + (*contHist[1])[movedPiece][move.to_sq()] - 4241;
 
         // Decrease/increase reduction for moves with a good/bad history (~8 Elo)
+        // 对于历史评分良好/不佳的走法，减少/增加缩减量（约8个Elo等级分） 
         r -= ss->statScore * 2652 / 18912;
 
         // Step 16. Late moves reduction / extension (LMR, ~117 Elo)
@@ -1261,31 +1302,38 @@ moves_loop:  // 将军时搜索从这里开始
                     value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, newDepth, !cutNode);
 
                 // Post LMR continuation history updates (~1 Elo)
+                // 发布LMR后续历史更新（约1等级分）
                 int bonus = (value >= beta) * 2048;
                 update_continuation_histories(ss, movedPiece, move.to_sq(), bonus);
             }
         }
 
         // Step 17. Full-depth search when LMR is skipped
+        // 步骤17：当跳过LMR时进行全深度搜索
         else if (!PvNode || moveCount > 1)
         {
             // Increase reduction if ttMove is not present (~6 Elo)
+            // 如果不存在转置表走法（ttMove），则增加缩减量（约6个Elo等级分） 
             if (!ttData.move)
                 r += 1744;
 
             // Note that if expected reduction is high, we reduce search depth by 1 here (~9 Elo)
+            // 请注意，如果预期缩减量较高，我们在此将搜索深度减少1（约9个Elo等级分） 
             value =
               -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, newDepth - (r > 4047), !cutNode);
         }
 
         // For PV nodes only, do a full PV search on the first move or after a fail high,
         // otherwise let the parent node fail low with value <= alpha and try another move.
+        // 仅针对主变（PV）节点，对第一步棋或在评估分数较高（fail high）后进行完整的主变搜索，
+        // 否则让父节点以小于等于α的值评估分数较低（fail low），并尝试另一步棋。 
         if (PvNode && (moveCount == 1 || value > alpha))
         {
             (ss + 1)->pv    = pv;
             (ss + 1)->pv[0] = Move::none();
 
             // Extend move from transposition table if we are about to dive into qsearch.
+            // 如果我们即将进入残局搜索（qsearch），则从置换表中扩展走法。 
             if (move == ttData.move && ss->ply <= thisThread->rootDepth * 2)
                 newDepth = std::max(newDepth, 1);
 
@@ -1293,6 +1341,7 @@ moves_loop:  // 将军时搜索从这里开始
         }
 
         // Step 18. Undo move
+        // 步骤18. 撤销走法
         pos.undo_move(move);
 
         assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
@@ -1301,6 +1350,9 @@ moves_loop:  // 将军时搜索从这里开始
         // Finished searching the move. If a stop occurred, the return value of
         // the search cannot be trusted, and we return immediately without updating
         // best move, principal variation nor transposition table.
+        // 步骤19. 检查是否有新的最佳走法
+        // 已完成该走法的搜索。如果出现了停止情况，搜索的返回值不可信，我们会立即返回，
+        // 而不更新最佳走法、主变以及置换表。 
         if (threads.stop.load(std::memory_order_relaxed))
             return VALUE_ZERO;
 
@@ -1319,6 +1371,7 @@ moves_loop:  // 将军时搜索从这里开始
                                   : value * std::abs(value);
 
             // PV move or new best move?
+            // 这是主变走法还是新的最佳走法？
             if (moveCount == 1 || value > alpha)
             {
                 rm.score = rm.uciScore = value;
@@ -1346,6 +1399,8 @@ moves_loop:  // 将军时搜索从这里开始
                 // We record how often the best move has been changed in each iteration.
                 // This information is used for time management. In MultiPV mode,
                 // we must take care to only do this for the first PV line.
+                // 我们记录每次迭代中最佳走法的变更频率。此信息用于时间管理。
+                // 在多主变（MultiPV）模式下，我们必须注意仅对第一条主变线路执行此操作。 
                 if (moveCount > 1 && !thisThread->pvIdx)
                     ++thisThread->bestMoveChanges;
             }
@@ -1353,11 +1408,15 @@ moves_loop:  // 将军时搜索从这里开始
                 // All other moves but the PV, are set to the lowest value: this
                 // is not a problem when sorting because the sort is stable and the
                 // move position in the list is preserved - just the PV is pushed up.
+                // 除主变走法之外的所有其他走法，都被设置为最低值：这在排序时并非问题，
+                // 因为排序是稳定的，列表中走法的位置得以保留——只是主变走法被移至靠前位置。 
                 rm.score = -VALUE_INFINITE;
         }
 
         // In case we have an alternative move equal in eval to the current bestmove,
         // promote it to bestmove by pretending it just exceeds alpha (but not beta).
+        // 如果我们有另一个走法，其评估值与当前最佳走法相等，
+        // 那么通过假设它刚好超过alpha（但不超过beta），将其提升为最佳走法。 
         int inc = (value == bestValue && ss->ply + 2 >= thisThread->rootDepth
                    && (int(nodes) & 15) == 0 && !is_win(std::abs(value) + 1));
 
@@ -1369,29 +1428,31 @@ moves_loop:  // 将军时搜索从这里开始
             {
                 bestMove = move;
 
-                if (PvNode && !rootNode)  // Update pv even in fail-high case
+                if (PvNode && !rootNode)  // Update pv even in fail-high case// 即使在评估分数较高（fail high）的情况下，也要更新主变（PV） 
                     update_pv(ss->pv, move, (ss + 1)->pv);
 
                 if (value >= beta) // beta截断
                 {
                     ss->cutoffCnt += !ttData.move + (extension < 2);
-                    assert(value >= beta);  // Fail high
+                    assert(value >= beta);  // Fail high// 评估分数较高（棋局搜索中的一种结果状态） 
                     break;
                 }
                 else
                 {
                     // Reduce other moves if we have found at least one score improvement (~2 Elo)
+                    // 如果我们至少发现一个分数提升，就减少其他走法的评估（约2个Elo等级分） 
                     if (depth > 2 && depth < 10 && !is_decisive(value))
                         depth -= 2;
 
                     assert(depth > 0);
-                    alpha = value;  // Update alpha! Always alpha < beta
+                    alpha = value;  // Update alpha! Always alpha < beta// 更新alpha值！始终保持alpha小于beta 
                 }
             }
         }
 
         // If the move is worse than some previously searched move,
         // remember it, to update its stats later.
+        // 如果该走法比之前搜索过的某些走法差，记住它，以便稍后更新其统计数据。 
         if (move != bestMove && moveCount <= 32)
         {
             if (capture)
@@ -1405,10 +1466,14 @@ moves_loop:  // 将军时搜索从这里开始
     // All legal moves have been searched and if there are no legal moves,
     // it must be a mate. If we are in a singular extension search then
     // return a fail low score.
+    // 步骤20. 检查是否将杀
+    // 所有合法走法均已搜索完毕，若不存在合法走法，则必定是将杀局面。
+    // 若我们处于奇异扩展搜索中，那么返回一个较低失败分数。 
 
     assert(moveCount || !ss->inCheck || excludedMove || !MoveList<LEGAL>(pos).size());
 
     // Adjust best value for fail high cases at non-pv nodes
+    // 针对非主变（PV）节点评估分数较高（fail high）的情况，调整最佳值。
     if (!PvNode && bestValue >= beta && !is_decisive(bestValue) && !is_decisive(beta)
         && !is_decisive(alpha))
         bestValue = (bestValue * depth + beta) / (depth + 1);
@@ -1418,10 +1483,12 @@ moves_loop:  // 将军时搜索从这里开始
 
     // If there is a move that produces search value greater than alpha,
     // we update the stats of searched moves.
+    // 如果存在某个走法，其搜索值大于alpha，我们就更新已搜索走法的统计数据。 
     else if (bestMove)
         update_all_stats(pos, ss, *this, bestMove, prevSq, quietsSearched, capturesSearched, depth);
 
     // Bonus for prior countermove that caused the fail low
+    // 对之前导致评估分数较低（fail low）的反制走法给予奖励 
     else if (!priorCapture && prevSq != SQ_NONE)
     {
         int bonusScale = (184 * (depth > 6) + 80 * !allNode + 152 * ((ss - 1)->moveCount > 11)
@@ -1429,6 +1496,7 @@ moves_loop:  // 将军时搜索从这里开始
                           + 169 * (!(ss - 1)->inCheck && bestValue <= -(ss - 1)->staticEval - 99));
 
         // Proportional to "how much damage we have to undo"
+        // 与 “我们需要挽回多少损失” 成正比 
         bonusScale += std::min(-(ss - 1)->statScore / 79, 234);
 
         bonusScale = std::max(bonusScale, 0);
@@ -1448,6 +1516,7 @@ moves_loop:  // 将军时搜索从这里开始
     else if (priorCapture && prevSq != SQ_NONE)
     {
         // bonus for prior countermoves that caused the fail low
+        // 对之前导致评估分数较低（fail low）的反制走法给予奖励 
         Piece capturedPiece = pos.captured_piece();
         assert(capturedPiece != NO_PIECE);
         thisThread->captureHistory[pos.piece_on(prevSq)][prevSq][type_of(capturedPiece)]
@@ -1455,6 +1524,7 @@ moves_loop:  // 将军时搜索从这里开始
     }
 
     // Bonus when search fails low and there is a TT move
+    // 当搜索评估分数较低（fail low）且置换表（TT）中有对应走法时给予奖励 
     else if (ttData.move && !allNode)
         thisThread->mainHistory[us][ttData.move.from_to()] << stat_bonus(depth) * 287 / 1024;
 
@@ -1463,11 +1533,14 @@ moves_loop:  // 将军时搜索从这里开始
 
     // If no good move is found and the previous position was ttPv, then the previous
     // opponent move is probably good and the new position is added to the search tree. (~7 Elo)
+    // 如果未找到好的走法，且上一局面是置换表主变（ttPv）局面，那么上一步对手的走法很可能是好棋，
+    // 新的局面会被添加到搜索树中。（约7个Elo等级分） 
     if (bestValue <= alpha)
         ss->ttPv = ss->ttPv || ((ss - 1)->ttPv && depth > 3);
 
     // Write gathered information in transposition table. Note that the
     // static evaluation is saved as it was before correction history.
+    // 将收集到的信息写入置换表。注意，静态评估值按修正历史之前的状态保存。 
     if (!excludedMove && !(rootNode && thisThread->pvIdx))
         ttWriter.write(posKey, value_to_tt(bestValue, ss->ply), ss->ttPv,
                        bestValue >= beta    ? BOUND_LOWER
@@ -1521,6 +1594,11 @@ moves_loop:  // 将军时搜索从这里开始
 // To fight this horizon effect, we implement this qsearch of tactical moves (~155 Elo).
 // See https://www.chessprogramming.org/Horizon_Effect
 // and https://www.chessprogramming.org/Quiescence_Search
+// 残局搜索函数，主搜索函数会以深度为零调用它，或者以不断递减的深度递归调用。
+// 当深度小于等于0时，我们 “应该” 只使用静态评估，但战术性走法可能会干扰静态评估。
+// 为应对这种视界效应，我们对战术性走法实施此残局搜索（约155个Elo等级分）。
+// 参见https://www.chessprogramming.org/Horizon_Effect
+// 以及https://www.chessprogramming.org/Quiescence_Search 
 template<NodeType nodeType>
 Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta) {
 
